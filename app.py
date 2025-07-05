@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import List
+from typing import List, Union
 from email_scraper import scrape_website
 
 app = FastAPI()
@@ -21,11 +21,20 @@ def root():
 @app.post("/extract")
 def extract_emails(request: URLRequest):
     try:
-        emails = scrape_website(request.url, max_count=20)
-        return {
-            "email": list(emails)[0] if emails else None,
-            "emails": list(emails),
-        }
+        result = scrape_website(request.url, max_count=2)  # reduced count
+
+        if isinstance(result, set):
+            emails = list(result)
+            return {
+                "email": emails[0] if emails else None,
+                "emails": emails
+            }
+        else:
+            return {
+                "email": result,
+                "emails": []
+            }
+
     except Exception as e:
         return {"error": str(e)}
 
@@ -35,13 +44,22 @@ def extract_emails_batch(request: BatchURLRequest):
     results = []
     for url in request.urls:
         try:
-            emails = scrape_website(url, max_count=20)
-            valid_email = next(iter(emails), None)
-            results.append({
-                "url": url,
-                "email": valid_email,
-                "all_emails": list(emails)
-            })
+            result = scrape_website(url, max_count=2)
+
+            if isinstance(result, set):
+                emails = list(result)
+                results.append({
+                    "url": url,
+                    "email": emails[0] if emails else None,
+                    "all_emails": emails
+                })
+            else:
+                results.append({
+                    "url": url,
+                    "email": result,
+                    "all_emails": []
+                })
+
         except Exception as e:
             results.append({
                 "url": url,
@@ -49,4 +67,5 @@ def extract_emails_batch(request: BatchURLRequest):
                 "email": None,
                 "all_emails": []
             })
+
     return results
