@@ -80,12 +80,13 @@ def scrape_website(start_url: str, max_count: int = 100) -> set[str]:
         filtered_emails = {
             email for email in raw_emails
             if not re.search(r'\.(webp|png|jpg|jpeg|html|css|svg|js)$', email)
-            and not any(domain in email for domain in [
-                'googlesyndication.com', 'ads.', '@ion.', '@ung.', '@boden.', 
+            and not any(bad in email for bad in [
+                'googlesyndication.com', 'ads.', '@ion.', '@ung.', '@boden.',
                 'alayer.push', 'templ@e.', 'block-post'
             ])
             and not email.startswith('.')  # Remove emails like ".wp-block..."
-            and re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)', email, re.I)  # Allow only real TLDs
+            and re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)', email, re.I)  # Allow real TLDs only
+            and len(email.split('@')[1].split('.')[0]) >= 3  # Domain must be at least 3 chars (e.g. h.com ❌)
         }
         collected_emails.update(filtered_emails)
 
