@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from email_scraper import extract_emails_from_url
+from email_scraper import scrape_website
 
 app = FastAPI()
 
@@ -14,11 +14,10 @@ def root():
 @app.post("/extract")
 def extract_emails(request: URLRequest):
     try:
-        emails, source = extract_emails_from_url(request.url)
+        emails = scrape_website(request.url, max_count=20)
         return {
-            "email": emails[0] if emails else None,
-            "emails": emails,
-            "source": source
+            "email": list(emails)[0] if emails else None,
+            "emails": list(emails),
         }
     except Exception as e:
         return {"error": str(e)}
