@@ -20,6 +20,32 @@ def normalize_link(link: str, base_url: str, page_path: str) -> str:
     elif not link.startswith('http'):
         return page_path + link
     return link
+
+# ✅ Clean and extract emails from page text
+def clean_text(text: str) -> str:
+    text = text.lower()
+    obfuscations = {
+        r'\[at\]': '@',
+        r'\(at\)': '@',
+        r'\s+at\s+': '@',
+        r'\[dot\]': '.',
+        r'\(dot\)': '.',
+        r'\s+dot\s+': '.',
+        r'\[@\]': '@',
+        r'\[\.\]': '.',
+        r'\s*\[?\s*at\s*\]?\s*': '@',
+        r'\s*\[?\s*dot\s*\]?\s*': '.',
+    }
+    for pattern, replacement in obfuscations.items():
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+    return text
+
+def extract_emails(response_text: str) -> set[str]:
+    cleaned_text = clean_text(response_text)
+    email_pattern = r'[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
+    return set(re.findall(email_pattern, cleaned_text, re.I))
+
+# ✅ Main scraping function
 def scrape_website(start_url: str, max_count: int = 2) -> set[str] | str:
     urls_to_process = deque([start_url])
     scraped_urls = set()
@@ -65,7 +91,7 @@ def scrape_website(start_url: str, max_count: int = 2) -> set[str] | str:
 
         collected_emails.update(filtered_emails)
 
-        # ✅ Check for contact form indicators if no emails found
+        # ✅ If no emails, check for contact form
         if not collected_emails:
             text = response.text.lower()
             if (
@@ -76,12 +102,14 @@ def scrape_website(start_url: str, max_count: int = 2) -> set[str] | str:
 
         soup = BeautifulSoup(response.text, 'lxml')
 
+        # ✅ Priority first
         if count == 1:
             for path in priority_paths:
                 priority_url = base_url + path
                 if priority_url not in scraped_urls and priority_url not in urls_to_process:
                     urls_to_process.appendleft(priority_url)
 
+        # ✅ Queue new links
         for anchor in soup.find_all('a'):
             link = anchor.get('href', '')
             normalized_link = normalize_link(link, base_url, page_path)
