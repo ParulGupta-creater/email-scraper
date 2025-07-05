@@ -51,6 +51,9 @@ def scrape_website(start_url: str, max_count: int = 2) -> set[str]:
     collected_emails = set()
     count = 0
 
+    # 👇 Priority subpages to try first
+    priority_paths = ['/contact', '/about', '/privacy', '/team', '/impressum']
+
     while urls_to_process:
         count += 1
         if count > max_count:
@@ -73,9 +76,7 @@ def scrape_website(start_url: str, max_count: int = 2) -> set[str]:
             print('There was a request error')
             continue
 
-        # ✅ Extract and filter emails (removes .webp, .html, junk)
-
-        
+        # ✅ Extract and filter emails (remove junk)
         raw_emails = extract_emails(response.text)
         filtered_emails = {
             email for email in raw_emails
@@ -85,12 +86,19 @@ def scrape_website(start_url: str, max_count: int = 2) -> set[str]:
                 'alayer.push', 'templ@e.', 'block-post'
             ])
             and not email.startswith('.')  # Remove emails like ".wp-block..."
-            and re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)', email, re.I)  # Allow real TLDs only
-            and len(email.split('@')[1].split('.')[0]) >= 3  # Domain must be at least 3 chars (e.g. h.com ❌)
+            and re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)', email, re.I)
+            and len(email.split('@')[1].split('.')[0]) >= 3
         }
         collected_emails.update(filtered_emails)
 
         soup = BeautifulSoup(response.text, 'lxml')
+
+        # ✅ Insert priority pages to front of the queue (only once)
+        if count == 1:
+            for path in priority_paths:
+                priority_url = base_url + path
+                if priority_url not in scraped_urls and priority_url not in urls_to_process:
+                    urls_to_process.appendleft(priority_url)
 
         for anchor in soup.find_all('a'):
             link = anchor.get('href', '')
@@ -100,7 +108,7 @@ def scrape_website(start_url: str, max_count: int = 2) -> set[str]:
 
     return collected_emails
 
-# ✅ CLI Entry point - safe for Render (only runs if executed manually)
+# ✅ CLI entry point (optional for manual testing)
 if __name__ == "__main__":
     try:
         user_url = input('[+] Enter url to scan: ')
