@@ -46,7 +46,7 @@ def extract_emails(response_text: str) -> set[str]:
     return set(re.findall(email_pattern, cleaned_text, re.I))
 
 # ✅ Main scraping function (updated for 4-page limit and prioritization)
-def scrape_website(start_url: str, max_count: int = 4) -> set[str] | str:
+def scrape_website(start_url: str, max_count: int = 2) -> set[str] | str:
     base_url = get_base_url(start_url)
     urls_to_process = deque()
     scraped_urls = set()
