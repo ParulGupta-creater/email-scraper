@@ -73,7 +73,15 @@ def scrape_website(start_url: str, max_count: int = 100) -> set[str]:
             print('There was a request error')
             continue
 
-        collected_emails.update(extract_emails(response.text))
+        # Extract and filter emails
+raw_emails = extract_emails(response.text)
+filtered_emails = {
+    email for email in raw_emails
+    if not re.search(r'\.(webp|png|jpg|jpeg|html|css|svg|js)$', email)
+    and not any(domain in email for domain in ['googlesyndication.com', 'ads.', '@ion.', '@ung.', '@boden.'])
+}
+collected_emails.update(filtered_emails)
+
 
         soup = BeautifulSoup(response.text, 'lxml')
 
