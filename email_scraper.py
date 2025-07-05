@@ -1,3 +1,9 @@
+from collections import deque
+import urllib.parse
+import re
+from bs4 import BeautifulSoup
+import requests
+import requests.exceptions as request_exception
 def scrape_website(start_url: str, max_count: int = 2) -> set[str] | str:
     urls_to_process = deque([start_url])
     scraped_urls = set()
