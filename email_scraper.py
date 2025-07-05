@@ -5,69 +5,47 @@ from bs4 import BeautifulSoup
 import requests
 import requests.exceptions as request_exception
 
-
 def get_base_url(url: str) -> str:
-    """
-    Extracts the base URL (scheme and netloc) from a given URL.
-
-    :param url: The full URL from which to extract the base.
-    :return: The base URL in the form 'scheme://netloc'.
-    """
-
     parts = urllib.parse.urlsplit(url)
     return '{0.scheme}://{0.netloc}'.format(parts)
 
-
 def get_page_path(url: str) -> str:
-    """
-    Extracts the page path from the given URL, used to normalize relative links.
-
-    :param url: The full URL from which to extract the page path.
-    :return: The page path (URL up to the last '/').
-    """
-
     parts = urllib.parse.urlsplit(url)
     return url[:url.rfind('/') + 1] if '/' in parts.path else url
 
+def clean_text(text: str) -> str:
+    text = text.lower()
+    obfuscations = {
+        r'\[at\]': '@',
+        r'\(at\)': '@',
+        r'\s+at\s+': '@',
+        r'\[dot\]': '.',
+        r'\(dot\)': '.',
+        r'\s+dot\s+': '.',
+        r'\[@\]': '@',
+        r'\[\.\]': '.',
+        r'\s*\[?\s*at\s*\]?\s*': '@',
+        r'\s*\[?\s*dot\s*\]?\s*': '.',
+    }
+
+    for pattern, replacement in obfuscations.items():
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+
+    return text
 
 def extract_emails(response_text: str) -> set[str]:
-    """
-    Extracts all email addresses from the provided HTML text.
-
-    :param response_text: The raw HTML content of a webpage.
-    :return: A set of email addresses found within the content.
-    """
-
-    email_pattern = r'[a-z0-9\.\-+]+@[a-z0-9\.\-+]+\.[a-z]+'
-    return set(re.findall(email_pattern, response_text, re.I))
-
+    cleaned_text = clean_text(response_text)
+    email_pattern = r'[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
+    return set(re.findall(email_pattern, cleaned_text, re.I))
 
 def normalize_link(link: str, base_url: str, page_path: str) -> str:
-    """
-    Normalizes relative links into absolute URLs.
-
-    :param link: The link to normalize (could be relative or absolute).
-    :param base_url: The base URL for relative links starting with '/'.
-    :param page_path: The page path for relative links not starting with '/'.
-    :return: The normalized link as an absolute URL.
-    """
-
     if link.startswith('/'):
         return base_url + link
     elif not link.startswith('http'):
         return page_path + link
     return link
 
-
 def scrape_website(start_url: str, max_count: int = 100) -> set[str]:
-    """
-    Scrapes a website starting from the given URL, follows links, and collects email addresses.
-
-    :param start_url: The initial URL to start scraping.
-    :param max_count: The maximum number of pages to scrape. Defaults to 100.
-    :return: A set of email addresses found during the scraping process.
-    """
-
     urls_to_process = deque([start_url])
     scraped_urls = set()
     collected_emails = set()
@@ -89,7 +67,7 @@ def scrape_website(start_url: str, max_count: int = 100) -> set[str]:
         print(f'[{count}] Processing {url}')
 
         try:
-            response = requests.get(url)
+            response = requests.get(url, timeout=10)
             response.raise_for_status()
         except (request_exception.RequestException, request_exception.MissingSchema, request_exception.ConnectionError):
             print('There was a request error')
@@ -107,12 +85,11 @@ def scrape_website(start_url: str, max_count: int = 100) -> set[str]:
 
     return collected_emails
 
-
+# CLI Entry point
 try:
     user_url = input('[+] Enter url to scan: ')
     emails = scrape_website(user_url)
 
-    # Display collected emails
     if emails:
         print('\n[+] Found emails:')
         for email in emails:
