@@ -4,6 +4,22 @@ import re
 from bs4 import BeautifulSoup
 import requests
 import requests.exceptions as request_exception
+
+# 🧩 Helper functions
+def get_base_url(url: str) -> str:
+    parts = urllib.parse.urlsplit(url)
+    return '{0.scheme}://{0.netloc}'.format(parts)
+
+def get_page_path(url: str) -> str:
+    parts = urllib.parse.urlsplit(url)
+    return url[:url.rfind('/') + 1] if '/' in parts.path else url
+
+def normalize_link(link: str, base_url: str, page_path: str) -> str:
+    if link.startswith('/'):
+        return base_url + link
+    elif not link.startswith('http'):
+        return page_path + link
+    return link
 def scrape_website(start_url: str, max_count: int = 2) -> set[str] | str:
     urls_to_process = deque([start_url])
     scraped_urls = set()
