@@ -85,16 +85,17 @@ def scrape_website(start_url: str, max_count: int = 100) -> set[str]:
 
     return collected_emails
 
-# CLI Entry point
-try:
-    user_url = input('[+] Enter url to scan: ')
-    emails = scrape_website(user_url)
+# ✅ CLI Entry point - safe for Render (only runs if executed manually)
+if __name__ == "__main__":
+    try:
+        user_url = input('[+] Enter url to scan: ')
+        emails = scrape_website(user_url)
 
-    if emails:
-        print('\n[+] Found emails:')
-        for email in emails:
-            print(email)
-    else:
-        print('[-] No emails found.')
-except KeyboardInterrupt:
-    print('[-] Closing!')
+        if emails:
+            print('\n[+] Found emails:')
+            for email in emails:
+                print(email)
+        else:
+            print('[-] No emails found.')
+    except KeyboardInterrupt:
+        print('[-] Closing!')
