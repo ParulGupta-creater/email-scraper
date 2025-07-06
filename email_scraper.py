@@ -49,6 +49,30 @@ def extract_emails(response_text: str) -> set[str]:
     email_pattern = r'[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
     return set(re.findall(email_pattern, cleaned_text, re.I))
 
+def extract_emails_from_html(html: str) -> set[str]:
+    """Extracts emails from the entire HTML."""
+    return extract_emails(html)
+
+def extract_emails_from_footer(html: str) -> set[str]:
+    """Extracts emails specifically from the <footer> tag if present."""
+    soup = BeautifulSoup(html, "lxml")
+    footer = soup.find("footer")
+    if footer:
+        footer_text = str(footer)
+        return extract_emails(footer_text)
+    return set()
+
+def prioritize_emails(emails):
+    outreach_keywords = ['editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip']
+    priority = []
+    others = []
+    for email in emails:
+        if any(kw in email for kw in outreach_keywords):
+            priority.append(email)
+        else:
+            others.append(email)
+    return priority, others
+
 # ✅ Main scraping function
 def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
     base_url = get_base_url(start_url)
@@ -87,11 +111,19 @@ def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
         except (request_exception.RequestException, request_exception.MissingSchema, request_exception.ConnectionError):
             continue
 
-        raw_emails = extract_emails(response.text)
+        page_html = response.text
 
-        # ✅ Filter: keep only likely guest post-related emails
+        # 1. Extract emails from full HTML
+        raw_emails = extract_emails_from_html(page_html)
+        # 2. Extract emails specifically from footer
+        footer_emails = extract_emails_from_footer(page_html)
+
+        # 3. Combine and filter emails
+        all_emails = raw_emails | footer_emails
+
+        # Filtering: remove image, script, etc. false positives, but don't require special keywords
         filtered_emails = {
-            email for email in raw_emails
+            email for email in all_emails
             if not re.search(r'\.(webp|png|jpg|jpeg|html|css|svg|js)$', email)
             and not any(bad in email for bad in [
                 'googlesyndication.com', 'ads.', '@ion.', '@ung.', '@boden.',
@@ -100,21 +132,20 @@ def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
             and not email.startswith('.')
             and re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)', email, re.I)
             and len(email.split('@')[1].split('.')[0]) >= 3
-            and any(kw in email for kw in ['editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip'])
         }
 
         collected_emails.update(filtered_emails)
 
-        if not collected_emails:
-            text = response.text.lower()
-            if (
-                '<form' in text and
-                any(keyword in text for keyword in ['contact', 'write for us', 'submit a guest post', 'contribute'])
-            ):
-                contact_form_found = True
+        # 4. Check for contact form (but don't return early—always prefer emails if any found)
+        text = page_html.lower()
+        if (
+            '<form' in text and
+            any(keyword in text for keyword in ['contact', 'write for us', 'submit a guest post', 'contribute'])
+        ):
+            contact_form_found = True
 
-        # 🧠 Optional: follow relevant new links
-        soup = BeautifulSoup(response.text, 'lxml')
+        # 5. Continue following relevant links
+        soup = BeautifulSoup(page_html, 'lxml')
         for anchor in soup.find_all('a'):
             link = anchor.get('href', '')
             normalized_link = normalize_link(link, base_url, page_path)
@@ -122,8 +153,10 @@ def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
                 if normalized_link not in urls_to_process and normalized_link not in scraped_urls:
                     urls_to_process.append(normalized_link)
 
+    # FINAL DECISION: Always prefer emails over contact form, prefer outreach emails if found
     if collected_emails:
-        return collected_emails
+        priority, others = prioritize_emails(collected_emails)
+        return set(priority) if priority else set(others)
     elif contact_form_found:
         return "Contact Form"
     else:
