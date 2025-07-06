@@ -39,14 +39,13 @@ def clean_text(text: str) -> str:
         r'\[\.\]': '.',
         r'\s*\[?\s*at\s*\]?\s*': '@',
         r'\s*\[?\s*dot\s*\]?\s*': '.',
-        r'\s*\(?\s*where\s*\)?\s*': '@',  # very rare, but can show up in weird obfuscations
     }
     for pattern, replacement in obfuscations.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
 
-def extract_emails(text: str) -> set[str]:
-    cleaned_text = clean_text(text)
+def extract_emails(response_text: str) -> set[str]:
+    cleaned_text = clean_text(response_text)
     email_pattern = r'[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
     return set(re.findall(email_pattern, cleaned_text, re.I))
 
@@ -62,30 +61,6 @@ def extract_emails_from_footer(html: str) -> set[str]:
         footer_text = str(footer)
         return extract_emails(footer_text)
     return set()
-
-def extract_emails_from_visible_text(html: str) -> set[str]:
-    """Extract emails from all visible text in the page, including obfuscated ones."""
-    soup = BeautifulSoup(html, "lxml")
-    # Get all text
-    text = soup.get_text(separator=" ")
-    # Clean obfuscations
-    cleaned_text = clean_text(text)
-    # Extract emails
-    return extract_emails(cleaned_text)
-
-def detect_any_contact_form(html: str) -> bool:
-    """Detects if any <form> exists, or if there's a mailto: link or 'contact' keyword on the page."""
-    soup = BeautifulSoup(html, "lxml")
-    # Check for <form>
-    if soup.find('form'):
-        return True
-    # Check for mailto links
-    if soup.find('a', href=lambda h: h and 'mailto:' in h):
-        return True
-    # Check for 'contact' keyword anywhere
-    if 'contact' in soup.get_text(separator=" ").lower():
-        return True
-    return False
 
 def prioritize_emails(emails):
     outreach_keywords = ['editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip']
@@ -138,11 +113,13 @@ def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
 
         page_html = response.text
 
-        # Extract emails from raw HTML, footer, and visible text
+        # 1. Extract emails from full HTML
         raw_emails = extract_emails_from_html(page_html)
+        # 2. Extract emails specifically from footer
         footer_emails = extract_emails_from_footer(page_html)
-        visible_emails = extract_emails_from_visible_text(page_html)
-        all_emails = raw_emails | footer_emails | visible_emails
+
+        # 3. Combine and filter emails
+        all_emails = raw_emails | footer_emails
 
         # Filtering: remove image, script, etc. false positives, but don't require special keywords
         filtered_emails = {
@@ -159,11 +136,15 @@ def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
 
         collected_emails.update(filtered_emails)
 
-        # Robust contact form detection
-        if detect_any_contact_form(page_html):
+        # 4. Check for contact form (but don't return early—always prefer emails if any found)
+        text = page_html.lower()
+        if (
+            '<form' in text and
+            any(keyword in text for keyword in ['contact', 'write for us', 'submit a guest post', 'contribute'])
+        ):
             contact_form_found = True
 
-        # Continue following relevant links
+        # 5. Continue following relevant links
         soup = BeautifulSoup(page_html, 'lxml')
         for anchor in soup.find_all('a'):
             link = anchor.get('href', '')
@@ -172,7 +153,7 @@ def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
                 if normalized_link not in urls_to_process and normalized_link not in scraped_urls:
                     urls_to_process.append(normalized_link)
 
-    # FINAL DECISION: Prefer emails, then contact form, then no email
+    # FINAL DECISION: Always prefer emails over contact form, prefer outreach emails if found
     if collected_emails:
         priority, others = prioritize_emails(collected_emails)
         return set(priority) if priority else set(others)
