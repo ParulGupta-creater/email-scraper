@@ -5,84 +5,84 @@ from bs4 import BeautifulSoup
 import requests
 import requests.exceptions as request_exception
 
-# Helper: Normalize base URL
+# === Utility Functions ===
 def get_base_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return f'{parts.scheme}://{parts.netloc}'
 
-# Helper: Page path for relative links
 def get_page_path(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return url[:url.rfind('/') + 1] if '/' in parts.path else url
 
-# Helper: Normalize hrefs
 def normalize_link(link: str, base_url: str, page_path: str) -> str:
-    if not link:
-        return ""
+    if not link: return ""
     link = link.strip()
-    if link.startswith('//'):
-        return 'https:' + link
-    elif link.startswith('/'):
-        return base_url + link
-    elif not link.startswith('http'):
-        return page_path + link
+    if link.startswith('//'): return 'https:' + link
+    if link.startswith('/'): return base_url + link
+    if not link.startswith('http'): return page_path + link
     return link
 
-# Clean text for email obfuscations
 def clean_text(text: str) -> str:
     text = text.lower()
     obfuscations = {
         r'\[at\]': '@', r'\(at\)': '@', r'\s+at\s+': '@',
         r'\[dot\]': '.', r'\(dot\)': '.', r'\s+dot\s+': '.',
-        r'\[@\]': '@', r'\[\.\]': '.', r'\s*\[?\s*at\s*\]?\s*': '@',
+        r'\[@\]': '@', r'\[\.\]': '.',
+        r'\s*\[?\s*at\s*\]?\s*': '@',
         r'\s*\[?\s*dot\s*\]?\s*': '.',
     }
     for pattern, replacement in obfuscations.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
 
-# Extract emails from HTML content
-def extract_emails(html: str) -> set[str]:
-    cleaned = clean_text(html)
-    pattern = r'[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
-    return set(re.findall(pattern, cleaned, re.I))
+def extract_emails(text: str) -> set[str]:
+    cleaned = clean_text(text)
+    email_pattern = r'[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
+    return set(re.findall(email_pattern, cleaned, re.I))
 
-# Extract emails specifically from the <footer>
-def extract_footer_emails(html: str) -> set[str]:
+def extract_emails_from_footer(html: str) -> set[str]:
     soup = BeautifulSoup(html, "lxml")
     footer = soup.find("footer")
-    if footer:
-        return extract_emails(str(footer))
-    return set()
+    return extract_emails(str(footer)) if footer else set()
 
-# Email priority filtering
+def is_valid_email(email: str) -> bool:
+    blocked_domains = [
+        'googlesyndication.com', 'ads.', 'sentry.', 'wixpress.com',
+        'bodis.com', 'akamai.net', 'cloudflare.net', 'amazonaws.com'
+    ]
+    if (
+        re.search(r'\.(webp|png|jpg|jpeg|html|css|svg|js)$', email) or
+        any(bad in email for bad in blocked_domains) or
+        email.startswith('.') or
+        len(email.split('@')[1].split('.')[0]) < 3
+    ):
+        return False
+    return True
+
 def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
-    outreach_keywords = ['editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip', 'team']
-    priority, others = [], []
-    for email in emails:
-        if any(kw in email for kw in outreach_keywords):
-            priority.append(email)
-        else:
-            others.append(email)
+    priority_keywords = ['guest', 'write', 'editor', 'submit', 'contact', 'info', 'tips', 'outreach']
+    priority = [e for e in emails if any(k in e for k in priority_keywords)]
+    others = [e for e in emails if e not in priority]
     return priority, others
 
-# ✅ Main scraping logic
+# === Scraper Core ===
 def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
     base_url = get_base_url(start_url)
     urls_to_process = deque()
     scraped_urls = set()
     collected_emails = set()
-    count = 0
     contact_form_found = False
+    count = 0
 
-    # High priority guest post / contact pages
+    # Priority pages
     priority_paths = [
-        '/contact', '/contact-us', '/write-for-us', '/guest-post', '/contribute',
-        '/submit-guest-post', '/become-a-contributor', '/submit-post', '/editorial-guidelines'
+        '/contact', '/contact-us', '/write-for-us', '/guest-post',
+        '/contribute', '/submit-guest-post', '/become-a-contributor',
+        '/submit-post', '/editorial-guidelines'
     ]
     for path in priority_paths:
         urls_to_process.append(base_url + path)
-    urls_to_process.append(start_url)  # homepage last
+    urls_to_process.append(start_url)  # Fallback: homepage last
 
     while urls_to_process and count < max_count:
         url = urls_to_process.popleft()
@@ -90,7 +90,6 @@ def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
             continue
         scraped_urls.add(url)
         count += 1
-        page_path = get_page_path(url)
 
         try:
             response = requests.get(url, timeout=10)
@@ -99,40 +98,24 @@ def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
             continue
 
         html = response.text
+        all_emails = extract_emails(html) | extract_emails_from_footer(html)
+        valid_emails = {email for email in all_emails if is_valid_email(email)}
+        collected_emails.update(valid_emails)
 
-        # Extract and combine
-        emails = extract_emails(html) | extract_footer_emails(html)
-
-        # Filter out junk / auto-generated / 1-char domains / known spam sources
-        filtered = {
-            e for e in emails
-            if not re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e)
-            and not any(bad in e for bad in [
-                'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com', 'noreply@'
-            ])
-            and not e.startswith('.')
-            and re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
-            and len(e.split('@')[1].split('.')[0]) >= 3
-        }
-
-        collected_emails.update(filtered)
-
-        # If no emails, check for contact form signals
         if not collected_emails:
-            lower_html = html.lower()
-            if '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit', 'reach us']):
+            text = html.lower()
+            if '<form' in text and any(keyword in text for keyword in ['contact', 'write for us', 'submit a guest post']):
                 contact_form_found = True
 
-        # Discover new links with priority keywords
         soup = BeautifulSoup(html, 'lxml')
-        for anchor in soup.find_all('a'):
-            link = anchor.get('href', '')
+        page_path = get_page_path(url)
+        for a in soup.find_all('a'):
+            link = a.get('href', '')
             normalized = normalize_link(link, base_url, page_path)
             if any(p in normalized.lower() for p in ['write', 'guest', 'contact', 'submit']):
                 if normalized not in urls_to_process and normalized not in scraped_urls:
                     urls_to_process.append(normalized)
 
-    # Return best match
     if collected_emails:
         priority, others = prioritize_emails(collected_emails)
         return set(priority) if priority else set(others)
