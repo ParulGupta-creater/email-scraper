@@ -104,16 +104,22 @@ def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
         emails = extract_emails(html) | extract_footer_emails(html)
 
         # Filter out junk / auto-generated / 1-char domains / known spam sources
-        filtered = {
+                filtered = {
             e for e in emails
             if not re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e)
             and not any(bad in e for bad in [
-                'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com', 'noreply@'
+                'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
+                'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
+                'wh@sapp.com', 'buyth@hotel.com'
             ])
-            and not e.startswith('.')
+            and not re.search(r'https?%3[a-z0-9]*@', e, re.I)  # avoid encoded URLs in emails
+            and not re.search(r'www\.', e.split('@')[0], re.I)  # avoid email usernames like www.buyth@
+            and not e.startswith('.') and '@' in e
             and re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
-            and len(e.split('@')[1].split('.')[0]) >= 3
+            and len(e.split('@')[1].split('.')[0]) >= 3  # valid domain before TLD
+            and len(e.split('@')[0]) >= 3  # valid username
         }
+
 
         collected_emails.update(filtered)
 
