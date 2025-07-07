@@ -104,7 +104,7 @@ def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
         emails = extract_emails(html) | extract_footer_emails(html)
 
         # Filter out junk / auto-generated / 1-char domains / known spam sources
-                filtered = {
+        filtered = {
             e for e in emails
             if not re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e)
             and not any(bad in e for bad in [
@@ -119,7 +119,6 @@ def scrape_website(start_url: str, max_count: int = 3) -> set[str] | str:
             and len(e.split('@')[1].split('.')[0]) >= 3  # valid domain before TLD
             and len(e.split('@')[0]) >= 3  # valid username
         }
-
 
         collected_emails.update(filtered)
 
