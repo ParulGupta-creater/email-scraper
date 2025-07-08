@@ -5,6 +5,7 @@ from collections import deque
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager  # <-- ADD THIS IMPORT
 
 # Helper: Normalize base URL
 def get_base_url(url: str) -> str:
@@ -31,7 +32,6 @@ def normalize_link(link: str, base_url: str, page_path: str) -> str:
 
 # Clean and deobfuscate text for email patterns
 def clean_text(text: str) -> str:
-    # Common obfuscations
     patterns = {
         r'\s?\[at\]\s?': '@', r'\s?\(at\)\s?': '@', r'\s+at\s+': '@',
         r'\s?\[dot\]\s?': '.', r'\s?\(dot\)\s?': '.', r'\s+dot\s+': '.',
@@ -46,7 +46,6 @@ def clean_text(text: str) -> str:
     text = text.lower()
     for pat, rep in patterns.items():
         text = re.sub(pat, rep, text, flags=re.IGNORECASE)
-    # Remove spaces within emails e.g. "jane @ example . com"
     text = re.sub(r'(\w)\s*@\s*(\w)', r'\1@\2', text)
     text = re.sub(r'(\w)\s*\.\s*(\w)', r'\1.\2', text)
     return text
@@ -54,7 +53,6 @@ def clean_text(text: str) -> str:
 # Extract emails from HTML/text
 def extract_emails(text: str) -> set[str]:
     cleaned = clean_text(text)
-    # Standard email regex, plus handle unicode @ and .
     email_regex = r'[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}'
     return set(re.findall(email_regex, cleaned, re.I))
 
@@ -102,33 +100,32 @@ def has_contact_form(soup) -> bool:
     return False
 
 # Main scraping logic
-def scrape_website(start_url: str, max_pages: int = 5, delay: float = 1.5, verbose: bool = False) -> set[str] | str:
+def scrape_website(start_url: str, max_count: int = 5, delay: float = 1.5, verbose: bool = False) -> set[str] | str:
     base_url = get_base_url(start_url)
     urls_to_process = deque()
     scraped_urls = set()
     collected_emails = set()
     contact_form_found = False
 
-    # Headless browser setup
     chrome_options = Options()
     chrome_options.add_argument("--headless")
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--window-size=1920,1200")
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-    driver = webdriver.Chrome(options=chrome_options)
+    # THIS IS THE ONLY CHANGE YOU NEED FOR DRIVER!
+    driver = webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
 
-    # High priority subpages
     priority_paths = [
         '/contact', '/contact-us', '/write-for-us', '/guest-post', '/contribute',
         '/submit-guest-post', '/become-a-contributor', '/submit-post', '/editorial-guidelines'
     ]
     for path in priority_paths:
         urls_to_process.append(base_url + path)
-    urls_to_process.append(start_url)  # homepage last
+    urls_to_process.append(start_url)
 
     pages_visited = 0
-    while urls_to_process and pages_visited < max_pages:
+    while urls_to_process and pages_visited < max_count:
         url = urls_to_process.popleft()
         if url in scraped_urls:
             continue
@@ -138,21 +135,17 @@ def scrape_website(start_url: str, max_pages: int = 5, delay: float = 1.5, verbo
 
         try:
             driver.get(url)
-            time.sleep(delay)  # let JS load
+            time.sleep(delay)
             html = driver.page_source
-        except Exception as e:
-            if verbose:
-                print(f"[WARN] Could not load {url}: {e}")
+        except Exception:
             continue
 
         soup = BeautifulSoup(html, "lxml")
 
-        # Extract emails from page and footer and mailto links
         emails = extract_emails(html)
         emails |= extract_footer_emails(html)
         emails |= extract_mailto_emails(soup)
 
-        # Filter out junk
         filtered = {
             e for e in emails
             if not re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e)
@@ -168,29 +161,21 @@ def scrape_website(start_url: str, max_pages: int = 5, delay: float = 1.5, verbo
             and len(e.split('@')[1].split('.')[0]) >= 3
             and len(e.split('@')[0]) >= 3
         }
-        if verbose and emails:
-            print(f"[DEBUG] {url}: found emails: {emails}")
-        if verbose and filtered != emails:
-            print(f"[DEBUG] {url}: filtered emails: {filtered}")
 
         collected_emails.update(filtered)
 
-        # If no emails, check for contact form signals
         if not collected_emails and has_contact_form(soup):
             contact_form_found = True
 
-        # Discover more relevant links
         for anchor in soup.find_all('a', href=True):
             link = anchor['href']
             normalized = normalize_link(link, base_url, page_path)
-            # Only follow links on same domain and not already queued/visited
             if normalized.startswith(base_url) and normalized not in urls_to_process and normalized not in scraped_urls:
                 if any(p in normalized.lower() for p in ['contact', 'write', 'guest', 'submit', 'about', 'editor']):
                     urls_to_process.append(normalized)
 
     driver.quit()
 
-    # Return best match
     if collected_emails:
         priority, others = prioritize_emails(collected_emails)
         return set(priority) if priority else set(others)
@@ -198,9 +183,3 @@ def scrape_website(start_url: str, max_pages: int = 5, delay: float = 1.5, verbo
         return "Contact Form"
     else:
         return "No Email"
-
-# Example usage:
-if __name__ == "__main__":
-    url = input("Enter website URL: ")
-    emails = scrape_website(url, verbose=True)
-    print("Result:", emails)
