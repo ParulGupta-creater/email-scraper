@@ -1,34 +1,26 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from typing import Union
-from collections import deque
-import re
-import urllib.parse
-from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from bs4 import BeautifulSoup
+from collections import deque
+import urllib.parse
+import re
+import time
 
 app = FastAPI()
 
+# ---- INPUT SCHEMA ----
 class ScrapeRequest(BaseModel):
     url: str
 
-def get_driver():
-    chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    return driver
-
+# ---- UTILITIES ----
 def get_base_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
-    return f"{parts.scheme}://{parts.netloc}"
+    return f'{parts.scheme}://{parts.netloc}'
 
 def get_page_path(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
@@ -58,8 +50,8 @@ def clean_text(text: str) -> str:
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
 
-def extract_emails(text: str) -> set[str]:
-    cleaned = clean_text(text)
+def extract_emails(html: str) -> set[str]:
+    cleaned = clean_text(html)
     pattern = r'[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
     return set(re.findall(pattern, cleaned, re.I))
 
@@ -80,40 +72,55 @@ def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
             others.append(email)
     return priority, others
 
-def scrape_website(start_url: str, max_count: int = 5) -> Union[set[str], str]:
-    driver = get_driver()
+# ---- SELENIUM BROWSER SETUP ----
+def get_headless_driver():
+    options = Options()
+    options.add_argument("--headless")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/114.0.0.0 Safari/537.36")
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    return driver
+
+# ---- MAIN SCRAPER ----
+def scrape_website_with_selenium(start_url: str, max_pages: int = 5) -> Union[dict, str]:
+    driver = get_headless_driver()
     base_url = get_base_url(start_url)
     urls_to_process = deque()
     scraped_urls = set()
     collected_emails = set()
     contact_form_found = False
+    count = 0
 
     priority_paths = [
-        '/contact', '/contact-us', '/write-for-us', '/guest-post', '/contribute',
-        '/submit-guest-post', '/become-a-contributor', '/submit-post', '/editorial-guidelines'
+        '/contact', '/contact-us', '/write-for-us', '/guest-post',
+        '/contribute', '/submit-guest-post', '/become-a-contributor',
+        '/submit-post', '/editorial-guidelines'
     ]
+
     for path in priority_paths:
         urls_to_process.append(base_url + path)
     urls_to_process.append(start_url)
 
-    count = 0
     try:
-        while urls_to_process and count < max_count:
+        while urls_to_process and count < max_pages:
             url = urls_to_process.popleft()
             if url in scraped_urls:
                 continue
             scraped_urls.add(url)
             count += 1
-            page_path = get_page_path(url)
 
             try:
                 driver.get(url)
+                time.sleep(2)
                 html = driver.page_source
             except Exception:
                 continue
 
             emails = extract_emails(html) | extract_footer_emails(html)
 
+            # Filter junk emails
             filtered = {
                 e for e in emails
                 if not re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e)
@@ -133,33 +140,35 @@ def scrape_website(start_url: str, max_count: int = 5) -> Union[set[str], str]:
             collected_emails.update(filtered)
 
             if not collected_emails:
-                if '<form' in html.lower() and any(kw in html.lower() for kw in ['contact', 'write for us', 'submit', 'reach us']):
+                lower_html = html.lower()
+                if '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit', 'reach us']):
                     contact_form_found = True
 
             soup = BeautifulSoup(html, 'lxml')
             for anchor in soup.find_all('a'):
                 link = anchor.get('href', '')
-                normalized = normalize_link(link, base_url, page_path)
+                normalized = normalize_link(link, base_url, get_page_path(url))
                 if any(p in normalized.lower() for p in ['write', 'guest', 'contact', 'submit']):
                     if normalized not in urls_to_process and normalized not in scraped_urls:
                         urls_to_process.append(normalized)
+
+        if collected_emails:
+            priority, others = prioritize_emails(collected_emails)
+            return {
+                "email": priority[0] if priority else (next(iter(others), None) or "No Email"),
+                "emails": sorted(list(collected_emails))
+            }
+        elif contact_form_found:
+            return {"email": "Contact Form", "emails": []}
+        else:
+            return {"email": "No Email", "emails": []}
     finally:
         driver.quit()
 
-    if collected_emails:
-        priority, others = prioritize_emails(collected_emails)
-        return set(priority) if priority else set(others)
-    elif contact_form_found:
-        return "Contact Form"
-    else:
-        return "No Email"
-
+# ---- API ENDPOINT ----
 @app.post("/extract")
-def extract_emails_endpoint(payload: ScrapeRequest):
-    result = scrape_website(payload.url)
-    if isinstance(result, str):
-        return {"email": result, "emails": []}
-    else:
-        emails = list(result)
-        return {"email": emails[0] if emails else "", "emails": emails}
-
+def extract_emails_api(payload: ScrapeRequest):
+    try:
+        return scrape_website_with_selenium(payload.url.strip())
+    except Exception as e:
+        return {"error": str(e)}
