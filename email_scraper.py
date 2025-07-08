@@ -5,7 +5,7 @@ from collections import deque
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager  # <-- ADD THIS IMPORT
+from webdriver_manager.chrome import ChromeDriverManager
 
 # Helper: Normalize base URL
 def get_base_url(url: str) -> str:
@@ -113,7 +113,7 @@ def scrape_website(start_url: str, max_count: int = 5, delay: float = 1.5, verbo
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--window-size=1920,1200")
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
-    # THIS IS THE ONLY CHANGE YOU NEED FOR DRIVER!
+    # Use webdriver-manager to install and manage ChromeDriver
     driver = webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
 
     priority_paths = [
