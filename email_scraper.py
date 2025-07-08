@@ -1,23 +1,11 @@
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
-from typing import Union
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from bs4 import BeautifulSoup
 from collections import deque
 import urllib.parse
 import re
-import time
+from bs4 import BeautifulSoup
+import requests
+import requests.exceptions as request_exception
 
-app = FastAPI()
-
-# ---- INPUT SCHEMA ----
-class ScrapeRequest(BaseModel):
-    url: str
-
-# ---- UTILITIES ----
+# --- URL Normalization Helpers ---
 def get_base_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return f'{parts.scheme}://{parts.netloc}'
@@ -38,6 +26,7 @@ def normalize_link(link: str, base_url: str, page_path: str) -> str:
         return page_path + link
     return link
 
+# --- Email Extraction Helpers ---
 def clean_text(text: str) -> str:
     text = text.lower()
     obfuscations = {
@@ -62,6 +51,28 @@ def extract_footer_emails(html: str) -> set[str]:
         return extract_emails(str(footer))
     return set()
 
+def is_valid_email(e: str) -> bool:
+    try:
+        if not isinstance(e, str) or '@' not in e:
+            return False
+        user, domain = e.split('@')
+        if (
+            len(user) < 3 or len(domain.split('.')[0]) < 3 or
+            re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e) or
+            any(bad in e for bad in [
+                'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
+                'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
+                'wh@sapp.com', 'buyth@hotel.com'
+            ]) or
+            re.search(r'https?%3[a-z0-9]*@', e, re.I) or
+            re.search(r'www\.', user, re.I) or
+            not re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
+        ):
+            return False
+        return True
+    except Exception:
+        return False
+
 def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
     outreach_keywords = ['editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip', 'team']
     priority, others = [], []
@@ -72,103 +83,63 @@ def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
             others.append(email)
     return priority, others
 
-# ---- SELENIUM BROWSER SETUP ----
-def get_headless_driver():
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/114.0.0.0 Safari/537.36")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    return driver
-
-# ---- MAIN SCRAPER ----
-def scrape_website_with_selenium(start_url: str, max_pages: int = 5) -> Union[dict, str]:
-    driver = get_headless_driver()
+# --- Main Scraper Function ---
+def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
     base_url = get_base_url(start_url)
     urls_to_process = deque()
     scraped_urls = set()
     collected_emails = set()
-    contact_form_found = False
     count = 0
+    contact_form_found = False
 
     priority_paths = [
-        '/contact', '/contact-us', '/write-for-us', '/guest-post',
-        '/contribute', '/submit-guest-post', '/become-a-contributor',
-        '/submit-post', '/editorial-guidelines'
+        '/contact', '/contact-us', '/write-for-us', '/guest-post', '/contribute',
+        '/submit-guest-post', '/become-a-contributor', '/submit-post', '/editorial-guidelines'
     ]
-
     for path in priority_paths:
         urls_to_process.append(base_url + path)
     urls_to_process.append(start_url)
 
-    try:
-        while urls_to_process and count < max_pages:
-            url = urls_to_process.popleft()
-            if url in scraped_urls:
-                continue
-            scraped_urls.add(url)
-            count += 1
+    while urls_to_process and count < max_count:
+        url = urls_to_process.popleft()
+        if url in scraped_urls:
+            continue
+        scraped_urls.add(url)
+        count += 1
+        page_path = get_page_path(url)
 
-            try:
-                driver.get(url)
-                time.sleep(2)
-                html = driver.page_source
-            except Exception:
-                continue
+        try:
+            response = requests.get(url, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+            })
+            response.raise_for_status()
+        except (request_exception.RequestException, request_exception.MissingSchema, request_exception.ConnectionError):
+            continue
 
-            emails = extract_emails(html) | extract_footer_emails(html)
+        html = response.text
 
-            # Filter junk emails
-            filtered = {
-                e for e in emails
-                if not re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e)
-                and not any(bad in e for bad in [
-                    'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
-                    'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
-                    'wh@sapp.com', 'buyth@hotel.com'
-                ])
-                and not re.search(r'https?%3[a-z0-9]*@', e, re.I)
-                and not re.search(r'www\.', e.split('@')[0], re.I)
-                and not e.startswith('.') and '@' in e
-                and re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
-                and len(e.split('@')[1].split('.')[0]) >= 3
-                and len(e.split('@')[0]) >= 3
-            }
+        # Extract emails
+        emails = extract_emails(html) | extract_footer_emails(html)
+        filtered = {e for e in emails if is_valid_email(e)}
+        collected_emails.update(filtered)
 
-            collected_emails.update(filtered)
+        if not collected_emails:
+            lower_html = html.lower()
+            if '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit', 'reach us']):
+                contact_form_found = True
 
-            if not collected_emails:
-                lower_html = html.lower()
-                if '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit', 'reach us']):
-                    contact_form_found = True
+        soup = BeautifulSoup(html, 'lxml')
+        for anchor in soup.find_all('a'):
+            link = anchor.get('href', '')
+            normalized = normalize_link(link, base_url, page_path)
+            if any(p in normalized.lower() for p in ['write', 'guest', 'contact', 'submit']):
+                if normalized not in urls_to_process and normalized not in scraped_urls:
+                    urls_to_process.append(normalized)
 
-            soup = BeautifulSoup(html, 'lxml')
-            for anchor in soup.find_all('a'):
-                link = anchor.get('href', '')
-                normalized = normalize_link(link, base_url, get_page_path(url))
-                if any(p in normalized.lower() for p in ['write', 'guest', 'contact', 'submit']):
-                    if normalized not in urls_to_process and normalized not in scraped_urls:
-                        urls_to_process.append(normalized)
-
-        if collected_emails:
-            priority, others = prioritize_emails(collected_emails)
-            return {
-                "email": priority[0] if priority else (next(iter(others), None) or "No Email"),
-                "emails": sorted(list(collected_emails))
-            }
-        elif contact_form_found:
-            return {"email": "Contact Form", "emails": []}
-        else:
-            return {"email": "No Email", "emails": []}
-    finally:
-        driver.quit()
-
-# ---- API ENDPOINT ----
-@app.post("/extract")
-def extract_emails_api(payload: ScrapeRequest):
-    try:
-        return scrape_website_with_selenium(payload.url.strip())
-    except Exception as e:
-        return {"error": str(e)}
+    if collected_emails:
+        priority, others = prioritize_emails(collected_emails)
+        return set(priority) if priority else set(others)
+    elif contact_form_found:
+        return "Contact Form"
+    else:
+        return "No Email"
