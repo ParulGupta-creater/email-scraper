@@ -95,26 +95,21 @@ def has_contact_form(soup) -> bool:
     return False
 
 def valid_email(e):
-    # Must be a nonempty string and contain exactly one '@'
     if not isinstance(e, str) or '@' not in e:
         return False
     try:
         user_part, domain_part = e.split('@', 1)
     except Exception:
         return False
-    # Both parts should be nonempty and reasonable length
     if len(user_part) < 3 or len(domain_part) < 3:
         return False
-    # domain_part must contain a dot, and domain_main must be at least 3 chars
     if '.' not in domain_part:
         return False
     domain_main = domain_part.split('.', 1)[0]
     if len(domain_main) < 3:
         return False
-    # TLD check
     if not re.search(r'\.(com|org|net|edu|co|io)$', domain_part, re.I):
         return False
-    # Exclude common bad ones
     bad_patterns = [
         r'\.(png|jpg|jpeg|svg|css|js|webp|html)$',
         r'https?%3[a-z0-9]*@',
