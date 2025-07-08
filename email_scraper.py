@@ -1,135 +1,106 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
 from typing import Union
-import re
 from bs4 import BeautifulSoup
+import re
+import time
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-from urllib.parse import urlsplit, urljoin
-import time
 
 app = FastAPI()
 
-class InputURL(BaseModel):
+# Request model
+class ExtractRequest(BaseModel):
     url: str
 
-def get_headless_browser():
+# Setup headless Selenium driver
+def create_driver():
     chrome_options = Options()
-    chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--headless=new")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-blink-features=AutomationControlled")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
-    service = Service(ChromeDriverManager().install())
-    return webdriver.Chrome(service=service, options=chrome_options)
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--window-size=1920x1080")
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    return driver
 
+# Clean text to handle obfuscated email formats
 def clean_text(text: str) -> str:
     text = text.lower()
-    obfuscations = {
-        r'\[at\]': '@', r'\(at\)': '@', r'\s+at\s+': '@',
-        r'\[dot\]': '.', r'\(dot\)': '.', r'\s+dot\s+': '.',
-        r'\[@\]': '@', r'\[\.\]': '.', r'\s*\[?\s*at\s*\]?\s*': '@',
-        r'\s*\[?\s*dot\s*\]?\s*': '.',
+    replacements = {
+        r"\[at\]": "@", r"\(at\)": "@", r"\s+at\s+": "@",
+        r"\[dot\]": ".", r"\(dot\)": ".", r"\s+dot\s+": ".",
+        r"\[@\]": "@", r"\[\.\]": ".", r"\s*\[?\s*at\s*\]?\s*": "@",
+        r"\s*\[?\s*dot\s*\]?\s*": ".",
     }
-    for pattern, replacement in obfuscations.items():
+    for pattern, replacement in replacements.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
 
+# Extract emails using regex
 def extract_emails(text: str) -> set[str]:
     cleaned = clean_text(text)
-    pattern = r'[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
-    return set(re.findall(pattern, cleaned, re.I))
+    return set(re.findall(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", cleaned, re.I))
 
-def prioritize_emails(emails: set[str]) -> list[str]:
-    outreach_keywords = ['editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip', 'team']
-    priority = [e for e in emails if any(kw in e for kw in outreach_keywords)]
-    return priority if priority else list(emails)
+# Extract footer emails
+def extract_footer_emails(html: str) -> set[str]:
+    soup = BeautifulSoup(html, "lxml")
+    footer = soup.find("footer")
+    if footer:
+        return extract_emails(str(footer))
+    return set()
 
-def is_valid_email(email: str) -> bool:
-    if not email or '@' not in email:
-        return False
-    username, domain = email.split('@')
-    if len(username) < 3 or len(domain.split('.')[0]) < 3:
-        return False
-    if re.search(r'https?%3[a-z0-9]*@', email, re.I):
-        return False
-    if re.search(r'www\.', username, re.I):
-        return False
-    if re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', email):
-        return False
-    bad_keywords = ['sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
-                    'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
-                    'wh@sapp.com', 'buyth@hotel.com']
-    return not any(bad in email for bad in bad_keywords)
+# Prioritize guest-posting related emails
+def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
+    keywords = ['editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip', 'team']
+    priority = [e for e in emails if any(k in e for k in keywords)]
+    others = list(emails - set(priority))
+    return priority, others
 
-def get_base_url(url: str) -> str:
-    parts = urlsplit(url)
-    return f"{parts.scheme}://{parts.netloc}"
+# Email filtering rules
+def filter_emails(emails: set[str]) -> set[str]:
+    filtered = {
+        e for e in emails
+        if not re.search(r"\.(png|jpg|jpeg|svg|css|js|webp|html)$", e)
+        and not any(bad in e for bad in [
+            'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
+            'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
+            'wh@sapp.com', 'buyth@hotel.com'
+        ])
+        and not re.search(r"https?%3[a-z0-9]*@", e, re.I)
+        and not re.search(r"www\.", e.split("@")[0], re.I)
+        and not e.startswith(".") and "@" in e
+        and re.search(r"@[\w.-]+\.(com|org|net|edu|co|io)$", e, re.I)
+        and len(e.split("@")[1].split(".")[0]) >= 3
+        and len(e.split("@")[0]) >= 3
+    }
+    return filtered
 
 @app.post("/extract")
-async def extract(input: InputURL):
+async def extract_email(request: ExtractRequest):
     try:
-        url = input.url.strip().lower()
-        base_url = get_base_url(url)
-        visited = set()
-        all_emails = set()
-        priority_links = [
-            url,
-            urljoin(base_url, "/contact"),
-            urljoin(base_url, "/write-for-us"),
-            urljoin(base_url, "/guest-post"),
-            urljoin(base_url, "/submit"),
-        ]
+        driver = create_driver()
+        driver.get(request.url)
+        time.sleep(6)  # Allow JS to load
+        html = driver.page_source
+        driver.quit()
 
-        browser = get_headless_browser()
+        emails = extract_emails(html) | extract_footer_emails(html)
+        filtered = filter_emails(emails)
 
-        for link in priority_links[:5]:
-            if link in visited:
-                continue
-            visited.add(link)
-            try:
-                browser.get(link)
-                time.sleep(3)
-                html = browser.page_source
-                soup = BeautifulSoup(html, 'lxml')
-
-                # All text
-                all_emails.update(extract_emails(html))
-
-                # Footer emails
-                footer = soup.find("footer")
-                if footer:
-                    all_emails.update(extract_emails(str(footer)))
-
-                # Explore more contact links on first page
-                if link == url:
-                    for a in soup.find_all("a", href=True):
-                        href = a["href"]
-                        if any(kw in href.lower() for kw in ['contact', 'guest', 'write', 'submit']):
-                            abs_link = urljoin(base_url, href)
-                            if abs_link not in visited:
-                                priority_links.append(abs_link)
-
-            except Exception as e:
-                continue
-
-        browser.quit()
-
-        filtered_emails = {e for e in all_emails if is_valid_email(e)}
-        prioritized = prioritize_emails(filtered_emails)
-
-        if prioritized:
+        if filtered:
+            priority, others = prioritize_emails(filtered)
             return {
-                "email": prioritized[0],
-                "emails": list(filtered_emails)
+                "email": priority[0] if priority else next(iter(filtered)),
+                "emails": sorted(filtered)
             }
 
-        if "<form" in html.lower() and any(k in html.lower() for k in ["contact", "write", "submit", "reach us"]):
-            return {"email": "Contact Form", "emails": []}
-
-        return {"email": "No Email", "emails": []}
+        # Look for contact form if no email
+        if "form" in html.lower() and any(k in html.lower() for k in ['contact', 'write for us', 'submit']):
+            return "Contact Form"
+        return "No Email"
 
     except Exception as e:
         return {"error": str(e)}
