@@ -80,7 +80,9 @@ def extract_mailto_emails(soup) -> set[str]:
 
 # Prioritize outreach emails
 def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
-    outreach_keywords = ['editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip', 'team']
+    outreach_keywords = [
+        'editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip', 'team'
+    ]
     priority, others = [], []
     for email in emails:
         if any(kw in email for kw in outreach_keywords):
@@ -94,7 +96,9 @@ def has_contact_form(soup) -> bool:
     form = soup.find('form')
     if form:
         form_html = str(form).lower()
-        keywords = ['contact', 'write', 'submit', 'reach', 'message', 'enquiry', 'feedback', 'support', 'join']
+        keywords = [
+            'contact', 'write', 'submit', 'reach', 'message', 'enquiry', 'feedback', 'support', 'join'
+        ]
         if any(kw in form_html for kw in keywords):
             return True
     return False
@@ -112,7 +116,9 @@ def scrape_website(start_url: str, max_count: int = 5, delay: float = 1.5, verbo
     chrome_options.add_argument("--disable-gpu")
     chrome_options.add_argument("--no-sandbox")
     chrome_options.add_argument("--window-size=1920,1200")
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    chrome_options.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+    )
     # Use webdriver-manager to install and manage ChromeDriver
     driver = webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
 
@@ -146,21 +152,33 @@ def scrape_website(start_url: str, max_count: int = 5, delay: float = 1.5, verbo
         emails |= extract_footer_emails(html)
         emails |= extract_mailto_emails(soup)
 
-        filtered = {
-            e for e in emails
-            if not re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e)
-            and not any(bad in e for bad in [
-                'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
-                'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
-                'wh@sapp.com', 'buyth@hotel.com'
-            ])
-            and not re.search(r'https?%3[a-z0-9]*@', e, re.I)
-            and not re.search(r'www\.', e.split('@')[0], re.I)
-            and not e.startswith('.') and '@' in e
-            and re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
-            and len(e.split('@')[1].split('.')[0]) >= 3
-            and len(e.split('@')[0]) >= 3
-        }
+        # Robust email filtering (no .split on None)
+        filtered = set()
+        for e in emails:
+            if not e or not isinstance(e, str) or '@' not in e:
+                continue
+            if (
+                not re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e)
+                and not any(bad in e for bad in [
+                    'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
+                    'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
+                    'wh@sapp.com', 'buyth@hotel.com'
+                ])
+                and not re.search(r'https?%3[a-z0-9]*@', e, re.I)
+                and not re.search(r'www\.', e.split('@')[0], re.I)
+                and not e.startswith('.') and '@' in e
+            ):
+                try:
+                    user_part, domain_part = e.split('@', 1)
+                    domain_main = domain_part.split('.', 1)[0]
+                    if (
+                        re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
+                        and len(domain_main) >= 3
+                        and len(user_part) >= 3
+                    ):
+                        filtered.add(e)
+                except Exception:
+                    continue
 
         collected_emails.update(filtered)
 
@@ -170,8 +188,14 @@ def scrape_website(start_url: str, max_count: int = 5, delay: float = 1.5, verbo
         for anchor in soup.find_all('a', href=True):
             link = anchor['href']
             normalized = normalize_link(link, base_url, page_path)
-            if normalized.startswith(base_url) and normalized not in urls_to_process and normalized not in scraped_urls:
-                if any(p in normalized.lower() for p in ['contact', 'write', 'guest', 'submit', 'about', 'editor']):
+            if (
+                normalized.startswith(base_url)
+                and normalized not in urls_to_process
+                and normalized not in scraped_urls
+            ):
+                if any(p in normalized.lower() for p in [
+                    'contact', 'write', 'guest', 'submit', 'about', 'editor'
+                ]):
                     urls_to_process.append(normalized)
 
     driver.quit()
