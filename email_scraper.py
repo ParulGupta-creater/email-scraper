@@ -7,17 +7,14 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Helper: Normalize base URL
 def get_base_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return f'{parts.scheme}://{parts.netloc}'
 
-# Helper: Page path for relative links
 def get_page_path(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return url[:url.rfind('/') + 1] if '/' in parts.path else url
 
-# Helper: Normalize hrefs
 def normalize_link(link: str, base_url: str, page_path: str) -> str:
     if not link:
         return ""
@@ -30,7 +27,6 @@ def normalize_link(link: str, base_url: str, page_path: str) -> str:
         return urllib.parse.urljoin(page_path, link)
     return link
 
-# Clean and deobfuscate text for email patterns
 def clean_text(text: str) -> str:
     patterns = {
         r'\s?\[at\]\s?': '@', r'\s?\(at\)\s?': '@', r'\s+at\s+': '@',
@@ -50,13 +46,11 @@ def clean_text(text: str) -> str:
     text = re.sub(r'(\w)\s*\.\s*(\w)', r'\1.\2', text)
     return text
 
-# Extract emails from HTML/text
 def extract_emails(text: str) -> set[str]:
     cleaned = clean_text(text)
     email_regex = r'[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}'
     return set(re.findall(email_regex, cleaned, re.I))
 
-# Extract emails from <footer>
 def extract_footer_emails(html: str) -> set[str]:
     soup = BeautifulSoup(html, "lxml")
     footer = soup.find("footer")
@@ -64,21 +58,19 @@ def extract_footer_emails(html: str) -> set[str]:
         return extract_emails(str(footer))
     return set()
 
-# Attempt to extract email from mailto: links
 def extract_mailto_emails(soup) -> set[str]:
     emails = set()
     for a in soup.find_all('a', href=True):
         href = a['href']
-        if href.lower().startswith('mailto:'):
+        if href and href.lower().startswith('mailto:'):
             email = href[7:]
             if '?' in email:
                 email = email.split('?', 1)[0]
             email = clean_text(email)
-            if '@' in email:
+            if email and '@' in email:
                 emails.add(email)
     return emails
 
-# Prioritize outreach emails
 def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
     outreach_keywords = [
         'editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip', 'team'
@@ -91,7 +83,6 @@ def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
             others.append(email)
     return priority, others
 
-# Detect if a contact form exists
 def has_contact_form(soup) -> bool:
     form = soup.find('form')
     if form:
@@ -103,7 +94,15 @@ def has_contact_form(soup) -> bool:
             return True
     return False
 
-# Main scraping logic
+def safe_split(s, char, idx):
+    """Safely split string s by char, return element idx, or '' if not possible."""
+    if not isinstance(s, str) or char not in s:
+        return ''
+    parts = s.split(char)
+    if len(parts) > idx:
+        return parts[idx]
+    return ''
+
 def scrape_website(start_url: str, max_count: int = 5, delay: float = 1.5, verbose: bool = False) -> set[str] | str:
     base_url = get_base_url(start_url)
     urls_to_process = deque()
@@ -119,7 +118,6 @@ def scrape_website(start_url: str, max_count: int = 5, delay: float = 1.5, verbo
     chrome_options.add_argument(
         "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
     )
-    # Use webdriver-manager to install and manage ChromeDriver
     driver = webdriver.Chrome(ChromeDriverManager().install(), options=chrome_options)
 
     priority_paths = [
@@ -152,10 +150,15 @@ def scrape_website(start_url: str, max_count: int = 5, delay: float = 1.5, verbo
         emails |= extract_footer_emails(html)
         emails |= extract_mailto_emails(soup)
 
-        # Robust email filtering (no .split on None)
         filtered = set()
         for e in emails:
             if not e or not isinstance(e, str) or '@' not in e:
+                continue
+            try:
+                user_part = safe_split(e, '@', 0)
+                domain_part = safe_split(e, '@', 1)
+                domain_main = safe_split(domain_part, '.', 0)
+            except Exception:
                 continue
             if (
                 not re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e)
@@ -165,20 +168,13 @@ def scrape_website(start_url: str, max_count: int = 5, delay: float = 1.5, verbo
                     'wh@sapp.com', 'buyth@hotel.com'
                 ])
                 and not re.search(r'https?%3[a-z0-9]*@', e, re.I)
-                and not re.search(r'www\.', e.split('@')[0], re.I)
+                and not re.search(r'www\.', user_part, re.I)
                 and not e.startswith('.') and '@' in e
+                and re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
+                and len(domain_main) >= 3
+                and len(user_part) >= 3
             ):
-                try:
-                    user_part, domain_part = e.split('@', 1)
-                    domain_main = domain_part.split('.', 1)[0]
-                    if (
-                        re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
-                        and len(domain_main) >= 3
-                        and len(user_part) >= 3
-                    ):
-                        filtered.add(e)
-                except Exception:
-                    continue
+                filtered.add(e)
 
         collected_emails.update(filtered)
 
