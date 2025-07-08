@@ -94,14 +94,45 @@ def has_contact_form(soup) -> bool:
             return True
     return False
 
-def safe_split(s, char, idx):
-    """Safely split string s by char, return element idx, or '' if not possible."""
-    if not isinstance(s, str) or char not in s:
-        return ''
-    parts = s.split(char)
-    if len(parts) > idx:
-        return parts[idx]
-    return ''
+def valid_email(e):
+    # Must be a nonempty string and contain exactly one '@'
+    if not isinstance(e, str) or '@' not in e:
+        return False
+    try:
+        user_part, domain_part = e.split('@', 1)
+    except Exception:
+        return False
+    # Both parts should be nonempty and reasonable length
+    if len(user_part) < 3 or len(domain_part) < 3:
+        return False
+    # domain_part must contain a dot, and domain_main must be at least 3 chars
+    if '.' not in domain_part:
+        return False
+    domain_main = domain_part.split('.', 1)[0]
+    if len(domain_main) < 3:
+        return False
+    # TLD check
+    if not re.search(r'\.(com|org|net|edu|co|io)$', domain_part, re.I):
+        return False
+    # Exclude common bad ones
+    bad_patterns = [
+        r'\.(png|jpg|jpeg|svg|css|js|webp|html)$',
+        r'https?%3[a-z0-9]*@',
+    ]
+    for pat in bad_patterns:
+        if re.search(pat, e, re.I):
+            return False
+    if any(bad in e for bad in [
+        'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
+        'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
+        'wh@sapp.com', 'buyth@hotel.com'
+    ]):
+        return False
+    if re.search(r'www\.', user_part, re.I):
+        return False
+    if e.startswith('.'):
+        return False
+    return True
 
 def scrape_website(start_url: str, max_count: int = 5, delay: float = 1.5, verbose: bool = False) -> set[str] | str:
     base_url = get_base_url(start_url)
@@ -150,32 +181,7 @@ def scrape_website(start_url: str, max_count: int = 5, delay: float = 1.5, verbo
         emails |= extract_footer_emails(html)
         emails |= extract_mailto_emails(soup)
 
-        filtered = set()
-        for e in emails:
-            if not e or not isinstance(e, str) or '@' not in e:
-                continue
-            try:
-                user_part = safe_split(e, '@', 0)
-                domain_part = safe_split(e, '@', 1)
-                domain_main = safe_split(domain_part, '.', 0)
-            except Exception:
-                continue
-            if (
-                not re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e)
-                and not any(bad in e for bad in [
-                    'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
-                    'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
-                    'wh@sapp.com', 'buyth@hotel.com'
-                ])
-                and not re.search(r'https?%3[a-z0-9]*@', e, re.I)
-                and not re.search(r'www\.', user_part, re.I)
-                and not e.startswith('.') and '@' in e
-                and re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
-                and len(domain_main) >= 3
-                and len(user_part) >= 3
-            ):
-                filtered.add(e)
-
+        filtered = set(e for e in emails if valid_email(e))
         collected_emails.update(filtered)
 
         if not collected_emails and has_contact_form(soup):
