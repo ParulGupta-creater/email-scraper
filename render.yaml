@@ -4,7 +4,7 @@ services:
     env: python
     plan: free
     buildCommand: ./build.sh
-    startCommand: uvicorn email_scraper:app --host 0.0.0.0 --port 10000
+    startCommand: uvicorn app:app --host 0.0.0.0 --port 10000
     envVars:
       - key: PYTHONUNBUFFERED
         value: "1"
@@ -12,4 +12,5 @@ services:
         value: "/usr/bin/google-chrome"
       - key: CHROME_BIN
         value: "/usr/bin/google-chrome"
+
 
