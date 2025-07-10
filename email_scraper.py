@@ -8,17 +8,14 @@ import time
 import urllib.parse
 from collections import deque
 
-# Helper: Normalize base URL
 def get_base_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return f'{parts.scheme}://{parts.netloc}'
 
-# Helper: Page path for relative links
 def get_page_path(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return url[:url.rfind('/') + 1] if '/' in parts.path else url
 
-# Normalize links
 def normalize_link(link: str, base_url: str, page_path: str) -> str:
     if not link:
         return ""
@@ -31,17 +28,15 @@ def normalize_link(link: str, base_url: str, page_path: str) -> str:
         return page_path + link
     return link
 
-# Setup headless browser
 def create_driver():
-    chrome_options = Options()
-    chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--window-size=1920x1080")
-    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    options = Options()
+    options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920x1080")
+    return webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
 
-# Clean text for obfuscation
 def clean_text(text: str) -> str:
     text = text.lower()
     replacements = {
@@ -54,12 +49,10 @@ def clean_text(text: str) -> str:
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
 
-# Extract emails
 def extract_emails(text: str) -> set[str]:
     cleaned = clean_text(text)
     return set(re.findall(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", cleaned, re.I))
 
-# Extract emails from footer
 def extract_footer_emails(html: str) -> set[str]:
     soup = BeautifulSoup(html, "lxml")
     footer = soup.find("footer")
@@ -67,33 +60,38 @@ def extract_footer_emails(html: str) -> set[str]:
         return extract_emails(str(footer))
     return set()
 
-# Prioritize outreach emails
 def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
     keywords = ['editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip', 'team']
     priority = [e for e in emails if any(k in e for k in keywords)]
     others = list(emails - set(priority))
     return priority, others
 
-# Filter out junk/spam emails
-def filter_emails(emails: set[str]) -> set[str]:
-    filtered = {
-        e for e in emails
-        if not re.search(r"\.(png|jpg|jpeg|svg|css|js|webp|html)$", e)
-        and not any(bad in e for bad in [
-            'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
-            'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
-            'wh@sapp.com', 'buyth@hotel.com'
-        ])
-        and not re.search(r"https?%3[a-z0-9]*@", e, re.I)
-        and not re.search(r"www\.", e.split("@")[0], re.I)
-        and not e.startswith(".") and "@" in e
-        and re.search(r"@[\w.-]+\.(com|org|net|edu|co|io)$", e, re.I)
-        and len(e.split("@")[1].split(".")[0]) >= 3
-        and len(e.split("@")[0]) >= 3
-    }
-    return filtered
+def is_valid_email(e: str) -> bool:
+    if not e or "@" not in e:
+        return False
+    try:
+        user, domain = e.split("@")
+        domain_parts = domain.split(".")
+        return (
+            len(user) >= 3 and
+            len(domain_parts[0]) >= 3 and
+            re.search(r"@[\w.-]+\.(com|org|net|edu|co|io)$", e, re.I) and
+            not re.search(r"\.(png|jpg|jpeg|svg|css|js|webp|html)$", e) and
+            not any(bad in e for bad in [
+                'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
+                'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
+                'wh@sapp.com', 'buyth@hotel.com'
+            ]) and
+            not re.search(r"https?%3[a-z0-9]*@", e, re.I) and
+            not re.search(r"www\.", user, re.I) and
+            not e.startswith(".")
+        )
+    except Exception:
+        return False
 
-# ✅ The function to import from app.py
+def filter_emails(emails: set[str]) -> set[str]:
+    return {e for e in emails if is_valid_email(e)}
+
 def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
     base_url = get_base_url(start_url)
     urls_to_process = deque()
@@ -107,7 +105,7 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
     ]
     for path in priority_paths:
         urls_to_process.append(base_url + path)
-    urls_to_process.append(start_url)  # homepage last
+    urls_to_process.append(start_url)
 
     driver = create_driver()
 
@@ -119,21 +117,19 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
 
             scraped_urls.add(url)
             driver.get(url)
-            time.sleep(5)  # Let JS load
+            time.sleep(5)
             html = driver.page_source
-
             page_path = get_page_path(url)
+
             emails = extract_emails(html) | extract_footer_emails(html)
             filtered = filter_emails(emails)
             collected_emails.update(filtered)
 
-            # If no emails found, detect contact form
             if not filtered:
                 lower_html = html.lower()
-                if '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit']):
+                if '<form' in lower_html and any(k in lower_html for k in ['contact', 'write for us', 'submit']):
                     contact_form_found = True
 
-            # Discover more relevant links
             soup = BeautifulSoup(html, 'lxml')
             for anchor in soup.find_all('a'):
                 link = anchor.get('href', '')
@@ -145,7 +141,6 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
     finally:
         driver.quit()
 
-    # Final results
     if collected_emails:
         priority, others = prioritize_emails(collected_emails)
         return set(priority) if priority else set(others)
