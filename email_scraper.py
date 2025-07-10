@@ -1,9 +1,7 @@
 import re
-from typing import Union
-import asyncio
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
-
+from typing import Union
 
 def clean_text(text: str) -> str:
     text = text.lower()
@@ -17,18 +15,15 @@ def clean_text(text: str) -> str:
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     return text
 
-
 def extract_emails(text: str) -> set[str]:
     cleaned = clean_text(text)
     return set(re.findall(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", cleaned, re.I))
-
 
 def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
     keywords = ['editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip', 'team']
     priority = [e for e in emails if any(k in e for k in keywords)]
     others = list(emails - set(priority))
     return priority, others
-
 
 def filter_emails(emails: set[str]) -> set[str]:
     filtered = {
@@ -48,18 +43,16 @@ def filter_emails(emails: set[str]) -> set[str]:
     }
     return filtered
 
-
-async def scrape_website(url: str, max_count: int = 5) -> dict:
-    try:
-        async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
-            page = await browser.new_page()
+async def scrape_website(url: str, max_count: int = 5) -> Union[set[str], str]:
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        try:
             await page.goto(url, timeout=20000)
             await page.wait_for_timeout(5000)
             content = await page.content()
-            await browser.close()
-
             soup = BeautifulSoup(content, "lxml")
+
             all_text = soup.get_text()
             footer = soup.find("footer")
             footer_text = str(footer) if footer else ""
@@ -68,32 +61,17 @@ async def scrape_website(url: str, max_count: int = 5) -> dict:
             emails = filter_emails(emails)
 
             if emails:
-                priority, _ = prioritize_emails(emails)
-                return {
-                    "status": "success",
-                    "email": list(priority)[0] if priority else list(emails)[0],
-                    "emails": sorted(list(emails))
-                }
+                priority, others = prioritize_emails(emails)
+                await browser.close()
+                return set(priority) if priority else emails
 
             if "form" in content.lower() and any(k in content.lower() for k in ['contact', 'write for us', 'submit']):
-                return {
-                    "status": "form",
-                    "email": None,
-                    "emails": [],
-                    "message": "Contact Form"
-                }
+                await browser.close()
+                return "Contact Form"
 
-            return {
-                "status": "not_found",
-                "email": None,
-                "emails": [],
-                "message": "No Email"
-            }
+            await browser.close()
+            return "No Email"
 
-    except Exception as e:
-        return {
-            "status": "error",
-            "email": None,
-            "emails": [],
-            "error": str(e)
-        }
+        except Exception as e:
+            await browser.close()
+            raise e
