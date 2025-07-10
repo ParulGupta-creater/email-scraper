@@ -21,7 +21,7 @@ def root():
 @app.post("/extract")
 def extract_emails(request: URLRequest):
     try:
-        result = scrape_website(request.url, max_count=2)  # reduced count
+        result = scrape_website(request.url, max_count=5)  # reduced count
 
         if isinstance(result, set):
             emails = list(result)
