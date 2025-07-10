@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import List
+from typing import List, Union
 from email_scraper import scrape_website
 
 app = FastAPI()
@@ -13,7 +13,7 @@ class BatchURLRequest(BaseModel):
 
 @app.get("/")
 def root():
-    return {"message": "Email Scraper API is running"}
+    return {"message": "✅ Email Scraper API is running"}
 
 @app.post("/extract")
 async def extract_emails(request: URLRequest):
@@ -26,9 +26,14 @@ async def extract_emails(request: URLRequest):
                 "email": emails[0] if emails else None,
                 "emails": emails
             }
-        else:
+        elif isinstance(result, str):  # e.g. "Contact Form" or "No Email"
             return {
                 "email": result,
+                "emails": []
+            }
+        else:
+            return {
+                "email": None,
                 "emails": []
             }
 
@@ -49,10 +54,16 @@ async def extract_emails_batch(request: BatchURLRequest):
                     "email": emails[0] if emails else None,
                     "all_emails": emails
                 })
-            else:
+            elif isinstance(result, str):
                 results.append({
                     "url": url,
                     "email": result,
+                    "all_emails": []
+                })
+            else:
+                results.append({
+                    "url": url,
+                    "email": None,
                     "all_emails": []
                 })
 
