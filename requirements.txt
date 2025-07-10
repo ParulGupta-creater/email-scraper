@@ -6,3 +6,4 @@ lxml==5.3.0
 selenium==4.21.0
 webdriver-manager==4.0.1
 greenlet==2.0.2  # ✅ Downgraded to avoid Py3.12 issues
+playwright==1.44.0
