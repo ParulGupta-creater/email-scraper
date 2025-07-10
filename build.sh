@@ -12,4 +12,4 @@ google-chrome --version
 
 # Install pip dependencies
 pip install -r requirements.txt
-
+python --version
