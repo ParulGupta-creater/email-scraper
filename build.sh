@@ -14,12 +14,13 @@ apt-get update && apt-get install -y \
     gnupg \
     software-properties-common
 
-# Debug DNS (optional)
+# Optional: Debug DNS resolution
 dig example.com || true
 
-# Install Python dependencies
+# Install Python packages
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Install Playwright browser binaries (Chromium, etc.)
-playwright install --with-deps
+# ✅ Install Playwright browser (Chromium only) to the path Render expects
+PLAYWRIGHT_BROWSERS_PATH=/opt/render/.cache/ms-playwright \
+  python -m playwright install chromium
