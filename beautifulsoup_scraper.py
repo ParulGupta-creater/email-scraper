@@ -143,6 +143,5 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
         return "Contact Form"
     else:
         return "No Email"
-def filter_emails(emails: set[str]) -> set[str]:
-    return {e for e in emails if is_valid_email(e)}
+
 
