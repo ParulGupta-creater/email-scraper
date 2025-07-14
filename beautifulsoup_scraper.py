@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 import requests
 import requests.exceptions as request_exception
 
-# --- URL Normalization Helpers ---
+# --- URL Helpers ---
 def get_base_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return f'{parts.scheme}://{parts.netloc}'
@@ -26,7 +26,7 @@ def normalize_link(link: str, base_url: str, page_path: str) -> str:
         return page_path + link
     return link
 
-# --- Email Extraction Helpers ---
+# --- Email Helpers ---
 def clean_text(text: str) -> str:
     text = text.lower()
     obfuscations = {
@@ -90,14 +90,14 @@ def detect_contact_form(html: str) -> bool:
     lower_html = html.lower()
     return '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit', 'reach us'])
 
-# --- Main Entry Point for FastAPI or Standalone Use ---
+# --- MAIN SCRAPER FUNCTION ---
 def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
     base_url = get_base_url(start_url)
     urls_to_process = deque()
     scraped_urls = set()
     collected_emails = set()
-    count = 0
     contact_form_found = False
+    count = 0
 
     priority_paths = [
         '/contact', '/contact-us', '/write-for-us', '/guest-post', '/contribute',
@@ -117,7 +117,7 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
 
         try:
             response = requests.get(url, timeout=10, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
             })
             response.raise_for_status()
         except (request_exception.RequestException, request_exception.MissingSchema, request_exception.ConnectionError):
@@ -125,14 +125,16 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
 
         html = response.text
 
-        # Extract emails
+        # --- EMAIL COLLECTION ---
         emails = extract_emails(html) | extract_footer_emails(html)
         filtered = filter_emails(emails)
         collected_emails.update(filtered)
 
+        # --- CONTACT FORM DETECTION ---
         if not collected_emails and detect_contact_form(html):
             contact_form_found = True
 
+        # --- DISCOVER MORE LINKS ---
         soup = BeautifulSoup(html, 'lxml')
         for anchor in soup.find_all('a'):
             link = anchor.get('href', '')
@@ -143,7 +145,7 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
 
     if collected_emails:
         priority, others = prioritize_emails(collected_emails)
-        return set(priority) if priority else set(others)
+        return set(priority) if priority else collected_emails
     elif contact_form_found:
         return "Contact Form"
     else:
