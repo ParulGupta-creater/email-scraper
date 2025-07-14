@@ -11,3 +11,4 @@ services:
         value: "1"
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: "/opt/render/.cache/ms-playwright"
+
