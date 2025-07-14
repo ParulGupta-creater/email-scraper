@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 
-# Exit immediately if any command fails
+# Exit immediately on any error
 set -e
 
-# Update system and install required tools
+# Update system tools and install required utilities
 apt-get update && apt-get install -y \
     ca-certificates \
     curl \
+    wget \
+    gnupg \
+    software-properties-common \
     dnsutils \
     net-tools \
     iputils-ping \
-    lsb-release \
-    gnupg \
-    software-properties-common
+    lsb-release
 
-# Optional: Debug DNS resolution
+# Optional: confirm DNS works
 dig example.com || true
 
-# Install Python packages
+# Upgrade pip and install Python dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# ✅ Install Playwright browser (Chromium only) to the path Render expects
-PLAYWRIGHT_BROWSERS_PATH=/opt/render/.cache/ms-playwright \
-  python -m playwright install chromium
+# Install Playwright browser binaries
+python -m playwright install --with-deps
