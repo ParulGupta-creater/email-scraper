@@ -1,11 +1,11 @@
 from collections import deque
 import urllib.parse
 import re
+from bs4 import BeautifulSoup
 import requests
 import requests.exceptions as request_exception
-from bs4 import BeautifulSoup
 
-# --- URL Helpers ---
+# --- URL Normalization Helpers ---
 def get_base_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return f'{parts.scheme}://{parts.netloc}'
@@ -26,7 +26,7 @@ def normalize_link(link: str, base_url: str, page_path: str) -> str:
         return page_path + link
     return link
 
-# --- Email Helpers ---
+# --- Email Extraction Helpers ---
 def clean_text(text: str) -> str:
     text = text.lower()
     obfuscations = {
@@ -47,7 +47,9 @@ def extract_emails(html: str) -> set[str]:
 def extract_footer_emails(html: str) -> set[str]:
     soup = BeautifulSoup(html, "lxml")
     footer = soup.find("footer")
-    return extract_emails(str(footer)) if footer else set()
+    if footer:
+        return extract_emails(str(footer))
+    return set()
 
 def is_valid_email(e: str) -> bool:
     try:
@@ -58,12 +60,13 @@ def is_valid_email(e: str) -> bool:
             len(user) < 3 or len(domain.split('.')[0]) < 3 or
             re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e) or
             any(bad in e for bad in [
-                'sentry', 'cloudflare', 'gravatar', 'amazonaws',
-                'doubleclick', 'wixpress', 'akamai', 'pagead2.',
-                'noreply@', '@e.com', '@aset.', '@ar.com'
+                'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
+                'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
+                'wh@sapp.com', 'buyth@hotel.com'
             ]) or
             re.search(r'https?%3[a-z0-9]*@', e, re.I) or
-            re.search(r'www\.', user, re.I)
+            re.search(r'www\.', user, re.I) or
+            not re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
         ):
             return False
         return True
@@ -80,7 +83,7 @@ def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
             others.append(email)
     return priority, others
 
-# --- Main Scraper Function ---
+# --- Main Scraper Function with Debugging ---
 def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
     base_url = get_base_url(start_url)
     urls_to_process = deque()
@@ -93,7 +96,6 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
         '/contact', '/contact-us', '/write-for-us', '/guest-post', '/contribute',
         '/submit-guest-post', '/become-a-contributor', '/submit-post', '/editorial-guidelines'
     ]
-
     for path in priority_paths:
         urls_to_process.append(base_url + path)
     urls_to_process.append(start_url)
@@ -107,32 +109,29 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
         page_path = get_page_path(url)
 
         try:
-            print(f"🧭 Visiting: {url}")
-            response = requests.get(url, timeout=15, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5"
+            response = requests.get(url, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
             })
             response.raise_for_status()
+
+            html = response.text
+            print(f"[DEBUG] ✅ {url} — Status: {response.status_code}, Length: {len(html)}")
+            print(f"[DEBUG] Content sample:\n{html[:500]}")
+
         except Exception as e:
-            print(f"⚠️ Failed to fetch: {url} — {e}")
+            print(f"[DEBUG] ❌ Failed to fetch {url} — {str(e)}")
             continue
 
-        html = response.text
-        soup = BeautifulSoup(html, 'lxml')
-
-        # Emails
         emails = extract_emails(html) | extract_footer_emails(html)
         filtered = {e for e in emails if is_valid_email(e)}
         collected_emails.update(filtered)
 
-        # Contact form detection fallback
-        if not filtered:
+        if not collected_emails:
             lower_html = html.lower()
             if '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit', 'reach us']):
                 contact_form_found = True
 
-        # Explore links
+        soup = BeautifulSoup(html, 'lxml')
         for anchor in soup.find_all('a'):
             link = anchor.get('href', '')
             normalized = normalize_link(link, base_url, page_path)
