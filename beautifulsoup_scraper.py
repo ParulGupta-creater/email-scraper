@@ -1,9 +1,13 @@
 from collections import deque
 import urllib.parse
 import re
-from bs4 import BeautifulSoup
 import requests
 import requests.exceptions as request_exception
+from bs4 import BeautifulSoup
+
+# --- Logging ---
+def log(msg):
+    print(f"[DEBUG] {msg}")
 
 # --- URL Normalization Helpers ---
 def get_base_url(url: str) -> str:
@@ -83,8 +87,14 @@ def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
             others.append(email)
     return priority, others
 
-# --- Main Scraper Function with Debugging ---
+# --- Main Scraper Function ---
 def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
+    # ✅ Add https:// if missing
+    if not start_url.startswith("http://") and not start_url.startswith("https://"):
+        start_url = "https://" + start_url
+
+    log(f"🌐 Starting scrape: {start_url}")
+
     base_url = get_base_url(start_url)
     urls_to_process = deque()
     scraped_urls = set()
@@ -109,17 +119,15 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
         page_path = get_page_path(url)
 
         try:
+            log(f"🔍 Fetching {url}")
             response = requests.get(url, timeout=10, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
             })
             response.raise_for_status()
-
             html = response.text
-            print(f"[DEBUG] ✅ {url} — Status: {response.status_code}, Length: {len(html)}")
-            print(f"[DEBUG] Content sample:\n{html[:500]}")
-
+            log(f"✅ Success [{response.status_code}] - {url}")
         except Exception as e:
-            print(f"[DEBUG] ❌ Failed to fetch {url} — {str(e)}")
+            log(f"❌ Failed to fetch {url} — {str(e)}")
             continue
 
         emails = extract_emails(html) | extract_footer_emails(html)
