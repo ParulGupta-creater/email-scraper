@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 import requests
 import requests.exceptions as request_exception
 
+# === URL helpers ===
 def get_base_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return f'{parts.scheme}://{parts.netloc}'
@@ -25,6 +26,7 @@ def normalize_link(link: str, base_url: str, page_path: str) -> str:
         return page_path + link
     return link
 
+# === Email extraction ===
 def clean_text(text: str) -> str:
     text = text.lower()
     obfuscations = {
@@ -87,3 +89,61 @@ def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
 def detect_contact_form(html: str) -> bool:
     lower_html = html.lower()
     return '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit', 'reach us'])
+
+# === Main Scraper ===
+def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
+    base_url = get_base_url(start_url)
+    urls_to_process = deque()
+    scraped_urls = set()
+    collected_emails = set()
+    count = 0
+    contact_form_found = False
+
+    priority_paths = [
+        '/contact', '/contact-us', '/write-for-us', '/guest-post', '/contribute',
+        '/submit-guest-post', '/become-a-contributor', '/submit-post', '/editorial-guidelines'
+    ]
+    for path in priority_paths:
+        urls_to_process.append(base_url + path)
+    urls_to_process.append(start_url)
+
+    while urls_to_process and count < max_count:
+        url = urls_to_process.popleft()
+        if url in scraped_urls:
+            continue
+        scraped_urls.add(url)
+        count += 1
+        page_path = get_page_path(url)
+
+        try:
+            response = requests.get(url, timeout=10, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36'
+            })
+            response.raise_for_status()
+        except (request_exception.RequestException, request_exception.MissingSchema, request_exception.ConnectionError):
+            continue
+
+        html = response.text
+
+        emails = extract_emails(html) | extract_footer_emails(html)
+        filtered = filter_emails(emails)
+        collected_emails.update(filtered)
+
+        if not collected_emails and detect_contact_form(html):
+            contact_form_found = True
+
+        soup = BeautifulSoup(html, 'lxml')
+        for anchor in soup.find_all('a'):
+            link = anchor.get('href', '')
+            normalized = normalize_link(link, base_url, page_path)
+            if any(p in normalized.lower() for p in ['write', 'guest', 'contact', 'submit']):
+                if normalized not in urls_to_process and normalized not in scraped_urls:
+                    urls_to_process.append(normalized)
+
+    if collected_emails:
+        priority, others = prioritize_emails(collected_emails)
+        return set(priority) if priority else set(others)
+    elif contact_form_found:
+        return "Contact Form"
+    else:
+        return "No Email"
