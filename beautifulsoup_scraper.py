@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 import requests
 import requests.exceptions as request_exception
 
-# --- URL Helpers ---
+# --- URL Normalization Helpers ---
 def get_base_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return f'{parts.scheme}://{parts.netloc}'
@@ -26,7 +26,7 @@ def normalize_link(link: str, base_url: str, page_path: str) -> str:
         return page_path + link
     return link
 
-# --- Email Extraction ---
+# --- Email Extraction Helpers ---
 def clean_text(text: str) -> str:
     text = text.lower()
     obfuscations = {
@@ -57,13 +57,16 @@ def is_valid_email(e: str) -> bool:
             return False
         user, domain = e.split('@')
         if (
-            len(user) < 2 or len(domain.split('.')[0]) < 2 or
+            len(user) < 3 or len(domain.split('.')[0]) < 3 or
             re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e) or
             any(bad in e for bad in [
-                'sentry', 'cloudflare', '@e.com', '@ar.com', 'gravatar',
-                'noreply@', 'akamai', 'doubleclick', 'pagead2.', 'googlemail'
+                'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
+                'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
+                'wh@sapp.com', 'buyth@hotel.com'
             ]) or
-            not re.search(r'@[\w.-]+\.[a-z]{2,}$', e, re.I)
+            re.search(r'https?%3[a-z0-9]*@', e, re.I) or
+            re.search(r'www\.', user, re.I) or
+            not re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
         ):
             return False
         return True
@@ -87,7 +90,7 @@ def detect_contact_form(html: str) -> bool:
     lower_html = html.lower()
     return '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit', 'reach us'])
 
-# --- Main Scraper ---
+# --- Main Entry Point for FastAPI or Standalone Use ---
 def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
     base_url = get_base_url(start_url)
     urls_to_process = deque()
@@ -121,11 +124,13 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
             continue
 
         html = response.text
+
+        # Extract emails
         emails = extract_emails(html) | extract_footer_emails(html)
         filtered = filter_emails(emails)
         collected_emails.update(filtered)
 
-        if not filtered and detect_contact_form(html):
+        if not collected_emails and detect_contact_form(html):
             contact_form_found = True
 
         soup = BeautifulSoup(html, 'lxml')
@@ -138,7 +143,7 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
 
     if collected_emails:
         priority, others = prioritize_emails(collected_emails)
-        return set(priority) if priority else collected_emails
+        return set(priority) if priority else set(others)
     elif contact_form_found:
         return "Contact Form"
     else:
