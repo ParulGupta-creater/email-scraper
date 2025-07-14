@@ -2,7 +2,13 @@ import re
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
-from beautifulsoup_scraper import clean_text, extract_emails, prioritize_emails, filter_emails, detect_contact_form
+from beautifulsoup_scraper import (
+    clean_text,
+    extract_emails,
+    prioritize_emails,
+    filter_emails,
+    detect_contact_form
+)
 
 async def scrape_with_playwright(url: str) -> set[str] | str:
     try:
