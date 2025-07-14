@@ -1,26 +1,26 @@
 #!/usr/bin/env bash
 
-# Exit immediately on error
+# Exit immediately if any command fails
 set -e
 
-# System dependencies
+# Update and install essential tools
 apt-get update && apt-get install -y \
-    wget \
-    curl \
-    gnupg \
-    ca-certificates \
-    lsb-release \
-    iputils-ping \
-    dnsutils \
-    net-tools \
-    software-properties-common
+  ca-certificates \
+  curl \
+  dnsutils \
+  net-tools \
+  iputils-ping \
+  lsb-release \
+  gnupg \
+  software-properties-common
 
-# Confirm DNS works
+# Optional DNS debug
 dig example.com || true
 
-# Upgrade pip & install project dependencies
+# Upgrade pip and install Python dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Install Playwright and its browser binaries (CRITICAL)
-python -m playwright install chromium --with-deps
+# Explicitly set Playwright cache path and install browsers
+export PLAYWRIGHT_BROWSERS_PATH=/opt/render/.cache/ms-playwright
+playwright install --with-deps
