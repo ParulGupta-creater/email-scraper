@@ -1,26 +1,35 @@
 #!/usr/bin/env bash
-
-# Exit immediately if any command fails
 set -e
 
-# Update and install essential tools
+# Install necessary packages for Chromium
 apt-get update && apt-get install -y \
-  ca-certificates \
-  curl \
-  dnsutils \
-  net-tools \
-  iputils-ping \
-  lsb-release \
-  gnupg \
-  software-properties-common
+    ca-certificates \
+    fonts-liberation \
+    libappindicator3-1 \
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libnspr4 \
+    libnss3 \
+    libx11-xcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxrandr2 \
+    xdg-utils \
+    wget \
+    gnupg \
+    curl \
+    unzip \
+    lsb-release \
+    fonts-noto-color-emoji
 
-# Optional DNS debug
-dig example.com || true
-
-# Upgrade pip and install Python dependencies
+# Install Python requirements
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Explicitly set Playwright cache path and install browsers
-export PLAYWRIGHT_BROWSERS_PATH=/opt/render/.cache/ms-playwright
-playwright install --with-deps
+# Install Playwright browsers (this MUST run at build time)
+playwright install chromium
