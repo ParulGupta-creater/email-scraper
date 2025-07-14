@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
 
-# Install Python dependencies
-pip install -r requirements.txt
+# Exit immediately if any command fails
+set -e
 
-# Install Playwright browsers
-python -m playwright install --with-deps
-#!/usr/bin/env bash
-
-# Update system packages and install CA certificates & network tools
+# Update system and install required tools
 apt-get update && apt-get install -y \
     ca-certificates \
     curl \
@@ -18,9 +14,12 @@ apt-get update && apt-get install -y \
     gnupg \
     software-properties-common
 
-# Optional: confirm DNS resolution inside build
+# Debug DNS (optional)
 dig example.com || true
 
 # Install Python dependencies
 pip install --upgrade pip
 pip install -r requirements.txt
+
+# Install Playwright browser binaries (Chromium, etc.)
+playwright install --with-deps
