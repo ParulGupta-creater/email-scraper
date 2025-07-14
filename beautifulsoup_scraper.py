@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 import requests
 import requests.exceptions as request_exception
 
-# === URL helpers ===
+# --- URL Normalization Helpers ---
 def get_base_url(url: str) -> str:
     parts = urllib.parse.urlsplit(url)
     return f'{parts.scheme}://{parts.netloc}'
@@ -26,7 +26,7 @@ def normalize_link(link: str, base_url: str, page_path: str) -> str:
         return page_path + link
     return link
 
-# === Email extraction ===
+# --- Email Extraction Helpers ---
 def clean_text(text: str) -> str:
     text = text.lower()
     obfuscations = {
@@ -57,7 +57,7 @@ def is_valid_email(e: str) -> bool:
             return False
         user, domain = e.split('@')
         if (
-            len(user) < 3 or len(domain.split('.')[0]) < 3 or
+            len(user) < 3 or len(domain.split('.')[0]) < 2 or
             re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e) or
             any(bad in e for bad in [
                 'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
@@ -73,9 +73,6 @@ def is_valid_email(e: str) -> bool:
     except Exception:
         return False
 
-def filter_emails(emails: set[str]) -> set[str]:
-    return {e for e in emails if is_valid_email(e)}
-
 def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
     outreach_keywords = ['editor', 'contact', 'info', 'submit', 'guest', 'write', 'pitch', 'tip', 'team']
     priority, others = [], []
@@ -90,7 +87,7 @@ def detect_contact_form(html: str) -> bool:
     lower_html = html.lower()
     return '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit', 'reach us'])
 
-# === Main Scraper ===
+# --- Main Scraper Function ---
 def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
     base_url = get_base_url(start_url)
     urls_to_process = deque()
@@ -125,13 +122,16 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
 
         html = response.text
 
+        # Extract emails from page and footer
         emails = extract_emails(html) | extract_footer_emails(html)
-        filtered = filter_emails(emails)
+        filtered = {e for e in emails if is_valid_email(e)}
         collected_emails.update(filtered)
 
-        if not collected_emails and detect_contact_form(html):
+        # Detect contact form (only if no emails found at all)
+        if not filtered and detect_contact_form(html):
             contact_form_found = True
 
+        # Add additional candidate links
         soup = BeautifulSoup(html, 'lxml')
         for anchor in soup.find_all('a'):
             link = anchor.get('href', '')
