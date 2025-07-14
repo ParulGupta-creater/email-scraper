@@ -65,7 +65,10 @@ def detect_contact_form(html: str) -> bool:
 async def scrape_with_playwright(url: str) -> set[str] | str:
     try:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"]
+            )
             page = await browser.new_page()
             await page.goto(url, timeout=20000)
             await page.wait_for_timeout(5000)
@@ -93,4 +96,3 @@ async def scrape_with_playwright(url: str) -> set[str] | str:
     except Exception as e:
         print(f"❌ Playwright failed: {e}")
         return "No Email"
-
