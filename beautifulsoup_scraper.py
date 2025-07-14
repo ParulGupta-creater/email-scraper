@@ -57,16 +57,13 @@ def is_valid_email(e: str) -> bool:
             return False
         user, domain = e.split('@')
         if (
-            len(user) < 3 or len(domain.split('.')[0]) < 2 or
+            len(user) < 2 or len(domain.split('.')[0]) < 2 or
             re.search(r'\.(png|jpg|jpeg|svg|css|js|webp|html)$', e) or
             any(bad in e for bad in [
-                'sentry', 'wixpress', 'cloudflare', 'gravatar', '@e.com', '@aset.', '@ar.com',
-                'noreply@', 'amazonaws', 'akamai', 'doubleclick', 'pagead2.', 'googlemail',
-                'wh@sapp.com', 'buyth@hotel.com'
+                'sentry', 'cloudflare', '@e.com', '@ar.com', 'gravatar',
+                'noreply@', 'akamai', 'doubleclick', 'pagead2.', 'googlemail'
             ]) or
-            re.search(r'https?%3[a-z0-9]*@', e, re.I) or
-            re.search(r'www\.', user, re.I) or
-            not re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
+            not re.search(r'@[\w.-]+\.[a-z]{2,}$', e, re.I)
         ):
             return False
         return True
@@ -124,7 +121,6 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
             continue
 
         html = response.text
-
         emails = extract_emails(html) | extract_footer_emails(html)
         filtered = filter_emails(emails)
         collected_emails.update(filtered)
@@ -142,7 +138,7 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
 
     if collected_emails:
         priority, others = prioritize_emails(collected_emails)
-        return set(priority) if priority else set(others)
+        return set(priority) if priority else collected_emails
     elif contact_form_found:
         return "Contact Form"
     else:
