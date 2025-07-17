@@ -74,4 +74,4 @@ pip install -r requirements.txt
 export PLAYWRIGHT_BROWSERS_PATH=/opt/render/.cache/ms-playwright
 
 # Install Chromium for Playwright (must be last)
-npx playwright install chromium
+npx playwright install --with-deps chromium
