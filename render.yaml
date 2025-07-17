@@ -9,7 +9,6 @@ services:
         value: "10000"
       - key: PYTHONUNBUFFERED
         value: "1"
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: "/opt/render/.cache/ms-playwright"
+
 
 
