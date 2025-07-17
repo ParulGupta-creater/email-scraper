@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-set -e  # Exit immediately if any command fails
+set -e
 
-# Install necessary packages for Chromium (needed by Playwright)
+# Install necessary dependencies for Chromium
 apt-get update && apt-get install -y \
+    curl \
+    gnupg \
+    unzip \
+    wget \
     ca-certificates \
     fonts-liberation \
     libappindicator3-1 \
@@ -20,21 +24,16 @@ apt-get update && apt-get install -y \
     libxdamage1 \
     libxrandr2 \
     xdg-utils \
-    wget \
-    gnupg \
-    curl \
-    unzip \
-    lsb-release \
     fonts-noto-color-emoji \
-    libxshmfence1 \
-    libegl1 \
-    libxfixes3 \
-    libxext6 \
-    libxi6
+    lsb-release \
+    software-properties-common
 
-# Upgrade pip and install Python packages
+# Install Python requirements
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Install Chromium browser only (not Firefox/WebKit)
-python -m playwright install chromium
+# Set environment variable for playwright browser path
+export PLAYWRIGHT_BROWSERS_PATH=/opt/render/.cache/ms-playwright
+
+# Install Chromium for Playwright (must be last)
+npx playwright install chromium
