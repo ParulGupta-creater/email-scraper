@@ -60,10 +60,14 @@ def detect_contact_form(html: str) -> bool:
     lower_html = html.lower()
     return '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit', 'reach us'])
 
-# --- Main Scraper ---
+# --- Main Scraper Function ---
 
 async def scrape_with_playwright(url: str) -> set[str] | str:
     try:
+        # Normalize domain
+        if not url.startswith("http"):
+            url = "https://" + url
+
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
