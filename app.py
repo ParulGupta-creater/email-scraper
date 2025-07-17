@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import List
 from beautifulsoup_scraper import scrape_website as scrape_bs
-from playwright_scraper import scrape_with_playwright
+
 
 app = FastAPI()
 
