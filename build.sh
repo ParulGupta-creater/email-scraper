@@ -36,4 +36,4 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 # Force Playwright to install Chromium in project dir (PLAYWRIGHT_BROWSERS_PATH=0)
-npx playwright install chromium --with-deps
+python -m playwright install chromium
