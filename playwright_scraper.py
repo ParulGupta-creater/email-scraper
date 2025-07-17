@@ -63,8 +63,8 @@ def detect_contact_form(html: str) -> bool:
 # --- Main Scraper Function ---
 
 async def scrape_with_playwright(url: str) -> set[str] | str:
+    browser = None
     try:
-        # Normalize domain
         if not url.startswith("http"):
             url = "https://" + url
 
@@ -86,8 +86,6 @@ async def scrape_with_playwright(url: str) -> set[str] | str:
             emails = extract_emails(text) | extract_emails(footer_text)
             emails = filter_emails(emails)
 
-            await browser.close()
-
             if emails:
                 priority, others = prioritize_emails(emails)
                 return set(priority) if priority else emails
@@ -100,3 +98,6 @@ async def scrape_with_playwright(url: str) -> set[str] | str:
     except Exception as e:
         print(f"❌ Playwright failed: {e}")
         return "No Email"
+    finally:
+        if browser:
+            await browser.close()
