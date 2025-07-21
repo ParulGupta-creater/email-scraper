@@ -4,7 +4,7 @@ from typing import List, Union
 from fastapi.responses import JSONResponse
 
 from playwright_scraper import scrape_with_playwright
-from beautifulsoup_scraper import scrape_bs
+
 
 app = FastAPI()
 
