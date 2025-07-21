@@ -74,25 +74,39 @@ async def scrape_with_playwright(url: str) -> set[str] | str:
                 headless=True,
                 args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
-
             context = await browser.new_context(ignore_https_errors=True)
             page = await context.new_page()
-            await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+            await page.goto(url, timeout=30000, wait_until="networkidle")
+            await page.wait_for_timeout(5000)
 
-            # New: wait for all JS to load, better for dynamic footers
-            await page.wait_for_load_state("networkidle")
+            # Scroll to bottom of page
+            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            await page.wait_for_timeout(3000)
 
-            # Slightly increased delay for smoother load
-            await page.wait_for_timeout(10000)
-
+            # Extract content
             content = await page.content()
             soup = BeautifulSoup(content, "lxml")
             text = soup.get_text()
+
+            # Extract from raw HTML + footer text
             footer = soup.find("footer")
             footer_text = str(footer) if footer else ""
 
+            # Fallback to JS-rendered footer text (if available)
+            try:
+                footer_locator = await page.locator("footer").inner_text()
+                footer_text += "\n" + footer_locator
+            except:
+                pass
+
+            # Combine and extract emails
             emails = extract_emails(text) | extract_emails(footer_text)
             emails = filter_emails(emails)
+
+            # Debug output
+            with open(f"/tmp/{url.replace('https://', '').replace('/', '_')}.html", "w", encoding="utf-8") as f:
+                f.write(content)
+            await page.screenshot(path=f"/tmp/{url.replace('https://', '').replace('/', '_')}.png", full_page=True)
 
             if emails:
                 priority, others = prioritize_emails(emails)
@@ -104,10 +118,9 @@ async def scrape_with_playwright(url: str) -> set[str] | str:
             return "No Email"
 
     except Exception as e:
-        print(f"❌ Playwright Exception for URL: {url}")
+        print("❌ Playwright Exception:")
         print(traceback.format_exc())
         return "No Email"
-
     finally:
         if browser:
             await browser.close()
