@@ -2,16 +2,11 @@ services:
   - type: web
     name: email-scraper
     env: python
-    buildCommand: ./build.sh
+    plan: free
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app:app --host 0.0.0.0 --port 10000
     envVars:
-      - key: PORT
-        value: 10000
       - key: PYTHONUNBUFFERED
         value: "1"
-      - key: PLAYWRIGHT_BROWSERS_PATH
-        value: "/opt/render/.cache/ms-playwright"
-
-
 
 
