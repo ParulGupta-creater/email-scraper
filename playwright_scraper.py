@@ -61,53 +61,78 @@ def detect_contact_form(html: str) -> bool:
     lower_html = html.lower()
     return '<form' in lower_html and any(kw in lower_html for kw in ['contact', 'write for us', 'submit', 'reach us'])
 
-# --- Main Scraper Function ---
+# --- Core Playwright Scraper ---
 
-async def scrape_with_playwright(url: str) -> set[str] | str:
+async def visit_and_extract(page, url):
+    try:
+        await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+        await page.wait_for_timeout(3000)
+
+        # Scroll to bottom for lazy-loaded content
+        await page.evaluate("""async () => {
+            await new Promise(resolve => {
+                let totalHeight = 0;
+                const distance = 300;
+                const timer = setInterval(() => {
+                    window.scrollBy(0, distance);
+                    totalHeight += distance;
+                    if (totalHeight >= document.body.scrollHeight) {
+                        clearInterval(timer);
+                        resolve();
+                    }
+                }, 300);
+            });
+        }""")
+
+        content = await page.content()
+        soup = BeautifulSoup(content, "lxml")
+        text = soup.get_text()
+        footer = soup.find("footer")
+        footer_text = str(footer) if footer else ""
+        emails = extract_emails(text) | extract_emails(footer_text)
+        emails = filter_emails(emails)
+
+        if emails:
+            priority, others = prioritize_emails(emails)
+            return set(priority) if priority else emails
+
+        if detect_contact_form(content):
+            return "Contact Form"
+
+        return "No Email"
+
+    except Exception:
+        print("❌ Error while visiting:", url)
+        print(traceback.format_exc())
+        return "No Email"
+
+async def scrape_with_playwright(domain: str) -> set[str] | str:
+    if not domain.startswith("http"):
+        domain = "https://" + domain
+
+    fallback_paths = ["", "/contact", "/about", "/team"]
     browser = None
     try:
-        if not url.startswith("http"):
-            url = "https://" + url
-
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
                 args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
-
-            context = await browser.new_context(
-                ignore_https_errors=True,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                locale='en-US',
-                viewport={"width": 1280, "height": 800}
-            )
-
+            context = await browser.new_context(ignore_https_errors=True)
             page = await context.new_page()
-            await page.goto(url, timeout=60000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(5000)
 
-            content = await page.content()
-            soup = BeautifulSoup(content, "lxml")
-            text = soup.get_text()
-
-            # Extract <footer> and other informative blocks
-            footer = soup.find("footer")
-            footer_text = str(footer) if footer else ""
-
-            emails = extract_emails(text) | extract_emails(footer_text)
-            emails = filter_emails(emails)
-
-            if emails:
-                priority, others = prioritize_emails(emails)
-                return set(priority) if priority else emails
-
-            if detect_contact_form(content):
-                return "Contact Form"
+            for path in fallback_paths:
+                full_url = domain.rstrip("/") + path
+                result = await visit_and_extract(page, full_url)
+                if isinstance(result, set) and result:
+                    return result
+                elif result == "Contact Form":
+                    return "Contact Form"
 
             return "No Email"
 
-    except Exception as e:
-        print("❌ Playwright Exception:")
+    except Exception:
+        print("❌ Playwright Fatal Error:")
         print(traceback.format_exc())
         return "No Email"
     finally:
