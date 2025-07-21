@@ -78,7 +78,12 @@ async def scrape_with_playwright(url: str) -> set[str] | str:
             context = await browser.new_context(ignore_https_errors=True)
             page = await context.new_page()
             await page.goto(url, timeout=30000, wait_until="domcontentloaded")
-            await page.wait_for_timeout(5000)
+
+            # New: wait for all JS to load, better for dynamic footers
+            await page.wait_for_load_state("networkidle")
+
+            # Slightly increased delay for smoother load
+            await page.wait_for_timeout(10000)
 
             content = await page.content()
             soup = BeautifulSoup(content, "lxml")
@@ -99,9 +104,10 @@ async def scrape_with_playwright(url: str) -> set[str] | str:
             return "No Email"
 
     except Exception as e:
-        print("❌ Playwright Exception:")
+        print(f"❌ Playwright Exception for URL: {url}")
         print(traceback.format_exc())
         return "No Email"
+
     finally:
         if browser:
             await browser.close()
