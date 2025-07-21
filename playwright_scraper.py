@@ -1,4 +1,5 @@
 import re
+import traceback
 from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
@@ -73,8 +74,10 @@ async def scrape_with_playwright(url: str) -> set[str] | str:
                 headless=True,
                 args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
-            page = await browser.new_page()
-            await page.goto(url, timeout=20000)
+
+            context = await browser.new_context(ignore_https_errors=True)
+            page = await context.new_page()
+            await page.goto(url, timeout=30000, wait_until="domcontentloaded")
             await page.wait_for_timeout(5000)
 
             content = await page.content()
@@ -96,7 +99,8 @@ async def scrape_with_playwright(url: str) -> set[str] | str:
             return "No Email"
 
     except Exception as e:
-        print(f"❌ Playwright failed: {e}")
+        print("❌ Playwright Exception:")
+        print(traceback.format_exc())
         return "No Email"
     finally:
         if browser:
