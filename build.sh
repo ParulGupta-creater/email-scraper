@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-# Install necessary packages for Chromium
+# Install necessary system packages for Chromium
 apt-get update && apt-get install -y \
     ca-certificates \
     fonts-liberation \
@@ -27,9 +27,10 @@ apt-get update && apt-get install -y \
     lsb-release \
     fonts-noto-color-emoji
 
-# Install Python requirements
+# Upgrade pip and install Python packages
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# Install Playwright browsers (this MUST run at build time)
-playwright install chromium
+# ✅ Install Playwright browsers locally to avoid shared cache issues
+export PLAYWRIGHT_BROWSERS_PATH=0
+playwright install --with-deps chromium
