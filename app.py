@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from typing import List
 
 from playwright_scraper import scrape_with_playwright
-from beautifulsoup_scraper import scrape_bs  # Assuming this still exists in your project
+
 
 app = FastAPI()
 
