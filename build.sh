@@ -31,6 +31,6 @@ apt-get update && apt-get install -y \
 pip install --upgrade pip
 pip install -r requirements.txt
 
-# ✅ Install Playwright browsers locally to avoid shared cache issues
+# ✅ Install Chromium only (NOT with --with-deps)
 export PLAYWRIGHT_BROWSERS_PATH=0
-playwright install --with-deps chromium
+playwright install chromium
