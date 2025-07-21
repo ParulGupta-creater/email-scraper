@@ -37,7 +37,7 @@ def is_valid_email(e: str) -> bool:
             ]) or
             re.search(r'https?%3[a-z0-9]*@', e, re.I) or
             re.search(r'www\.', user, re.I) or
-            not re.search(r'@[\w.-]+\.(com|org|net|edu|co|io)$', e, re.I)
+            not re.search(r'@[\w.-]+\.(com|org|net|edu|co|io|uk)$', e, re.I)
         ):
             return False
         return True
@@ -74,39 +74,28 @@ async def scrape_with_playwright(url: str) -> set[str] | str:
                 headless=True,
                 args=["--no-sandbox", "--disable-dev-shm-usage"]
             )
-            context = await browser.new_context(ignore_https_errors=True)
+
+            context = await browser.new_context(
+                ignore_https_errors=True,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                locale='en-US',
+                viewport={"width": 1280, "height": 800}
+            )
+
             page = await context.new_page()
-            await page.goto(url, timeout=30000, wait_until="networkidle")
+            await page.goto(url, timeout=60000, wait_until="domcontentloaded")
             await page.wait_for_timeout(5000)
 
-            # Scroll to bottom of page
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await page.wait_for_timeout(3000)
-
-            # Extract content
             content = await page.content()
             soup = BeautifulSoup(content, "lxml")
             text = soup.get_text()
 
-            # Extract from raw HTML + footer text
+            # Extract <footer> and other informative blocks
             footer = soup.find("footer")
             footer_text = str(footer) if footer else ""
 
-            # Fallback to JS-rendered footer text (if available)
-            try:
-                footer_locator = await page.locator("footer").inner_text()
-                footer_text += "\n" + footer_locator
-            except:
-                pass
-
-            # Combine and extract emails
             emails = extract_emails(text) | extract_emails(footer_text)
             emails = filter_emails(emails)
-
-            # Debug output
-            with open(f"/tmp/{url.replace('https://', '').replace('/', '_')}.html", "w", encoding="utf-8") as f:
-                f.write(content)
-            await page.screenshot(path=f"/tmp/{url.replace('https://', '').replace('/', '_')}.png", full_page=True)
 
             if emails:
                 priority, others = prioritize_emails(emails)
