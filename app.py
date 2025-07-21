@@ -1,35 +1,41 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+from typing import List
+
 from playwright_scraper import scrape_with_playwright
-import traceback
 
 app = FastAPI()
 
 class URLRequest(BaseModel):
     url: str
 
+class BatchURLRequest(BaseModel):
+    urls: List[str]
+
 @app.get("/")
 def root():
-    return {"message": "Playwright Email Scraper is live"}
+    return {"message": "Email Scraper API is running"}
+
+@app.post("/extract-bs")
+async def extract_emails_bs(request: URLRequest):
+    result = scrape_bs(request.url)
+    if isinstance(result, set):
+        emails = list(result)
+        return {
+            "email": emails[0] if emails else None,
+            "emails": emails
+        }
+    else:
+        return {"email": result, "emails": []}
 
 @app.post("/extract-playwright")
 async def extract_emails_playwright(request: URLRequest):
-    try:
-        result = await scrape_with_playwright(request.url)
-        if isinstance(result, set):
-            emails = list(result)
-            return {
-                "email": emails[0] if emails else None,
-                "emails": emails
-            }
+    result = await scrape_with_playwright(request.url)
+    if isinstance(result, set):
+        emails = list(result)
         return {
-            "email": result,
-            "emails": []
+            "email": emails[0] if emails else None,
+            "emails": emails
         }
-    except Exception as e:
-        return {
-            "email": "❌ Playwright Error",
-            "emails": [],
-            "error": str(e),
-            "traceback": traceback.format_exc()
-        }
+    else:
+        return {"email": result, "emails": []}
