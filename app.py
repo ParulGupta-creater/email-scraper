@@ -1,27 +1,31 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import List, Union
-import traceback
+from typing import List
 
 from playwright_scraper import scrape_with_playwright
-
+from beautifulsoup_scraper import scrape_bs  # Assuming this still exists in your project
 
 app = FastAPI()
+
 
 class URLRequest(BaseModel):
     url: str
 
+
 class BatchURLRequest(BaseModel):
     urls: List[str]
+
 
 @app.get("/")
 def root():
     return {"message": "Email Scraper API is running"}
 
+
 @app.post("/extract-bs")
 async def extract_emails_bs(request: URLRequest):
     try:
         result = scrape_bs(request.url)
+
         if isinstance(result, set):
             emails = list(result)
             return {
@@ -29,12 +33,19 @@ async def extract_emails_bs(request: URLRequest):
                 "emails": emails,
                 "status": "✅ Email"
             }
-        else:
+        elif isinstance(result, str):
             return {
                 "email": result,
                 "emails": [],
-                "status": "❌ " + result
+                "status": f"❌ {result}"
             }
+        else:
+            return {
+                "email": None,
+                "emails": [],
+                "status": "❌ Unknown result type from BS"
+            }
+
     except Exception as e:
         return {
             "email": "Error",
@@ -43,10 +54,12 @@ async def extract_emails_bs(request: URLRequest):
             "error": str(e)
         }
 
+
 @app.post("/extract-playwright")
 async def extract_emails_playwright(request: URLRequest):
     try:
         result = await scrape_with_playwright(request.url)
+
         if isinstance(result, set):
             emails = list(result)
             return {
@@ -54,12 +67,19 @@ async def extract_emails_playwright(request: URLRequest):
                 "emails": emails,
                 "status": "✅ Email"
             }
-        else:
+        elif isinstance(result, str):
             return {
                 "email": result,
                 "emails": [],
-                "status": "❌ " + result
+                "status": f"❌ {result}"
             }
+        else:
+            return {
+                "email": None,
+                "emails": [],
+                "status": "❌ Unknown result type from Playwright"
+            }
+
     except Exception as e:
         return {
             "email": "Error",
