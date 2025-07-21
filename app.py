@@ -1,29 +1,62 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from playwright_scraper import scrape_with_playwright
-import traceback
+from typing import List, Union
+from email_scraper import scrape_website
 
 app = FastAPI()
 
 class URLRequest(BaseModel):
     url: str
 
+class BatchURLRequest(BaseModel):
+    urls: List[str]
+
 @app.get("/")
 def root():
-    return {"message": "Playwright Email Scraper is live"}
+    return {"message": "Email Scraper API is running"}
 
-@app.post("/extract-playwright")
-async def extract_emails_playwright(request: URLRequest):
+@app.post("/extract")
+async def extract_emails(request: URLRequest):
     try:
-        result = await scrape_with_playwright(request.url)
+        result = await scrape_website(request.url, max_count=5)
         if isinstance(result, set):
             emails = list(result)
-            return {"email": emails[0] if emails else None, "emails": emails}
-        return {"email": result, "emails": []}
+            return {
+                "email": emails[0] if emails else None,
+                "emails": emails
+            }
+        else:
+            return {
+                "email": result,
+                "emails": []
+            }
     except Exception as e:
-        return {
-            "error": str(e),
-            "traceback": traceback.format_exc(),
-            "email": None,
-            "emails": []
-        }
+        return {"error": str(e)}
+
+@app.post("/extract-batch")
+async def extract_emails_batch(request: BatchURLRequest):
+    results = []
+    for url in request.urls:
+        try:
+            result = await scrape_website(url, max_count=5)
+            if isinstance(result, set):
+                emails = list(result)
+                results.append({
+                    "url": url,
+                    "email": emails[0] if emails else None,
+                    "all_emails": emails
+                })
+            else:
+                results.append({
+                    "url": url,
+                    "email": result,
+                    "all_emails": []
+                })
+        except Exception as e:
+            results.append({
+                "url": url,
+                "error": str(e),
+                "email": None,
+                "all_emails": []
+            })
+    return results
