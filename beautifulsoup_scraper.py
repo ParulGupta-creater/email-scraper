@@ -2,7 +2,6 @@ from collections import deque
 import urllib.parse
 import re
 import requests
-import requests.exceptions as request_exception
 from bs4 import BeautifulSoup
 
 # --- Logging ---
@@ -46,7 +45,8 @@ def clean_text(text: str) -> str:
 def extract_emails(html: str) -> set[str]:
     cleaned = clean_text(html)
     pattern = r'[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}'
-    return set(re.findall(pattern, cleaned, re.I))
+    raw_emails = set(re.findall(pattern, cleaned, re.I))
+    return raw_emails
 
 def extract_footer_emails(html: str) -> set[str]:
     soup = BeautifulSoup(html, "lxml")
@@ -58,6 +58,8 @@ def extract_footer_emails(html: str) -> set[str]:
 def is_valid_email(e: str) -> bool:
     try:
         if not isinstance(e, str) or '@' not in e:
+            return False
+        if e.lower().startswith('http') or e.lower().startswith('https'):
             return False
         user, domain = e.split('@')
         if (
@@ -88,8 +90,7 @@ def prioritize_emails(emails: set[str]) -> tuple[list[str], list[str]]:
     return priority, others
 
 # --- Main Scraper Function ---
-def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
-    # ✅ Add https:// if missing
+def scrape_website(start_url: str, max_count: int = 6) -> set[str] | str:
     if not start_url.startswith("http://") and not start_url.startswith("https://"):
         start_url = "https://" + start_url
 
@@ -102,8 +103,9 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
     count = 0
     contact_form_found = False
 
+    # Updated path order: prioritize /about and /about-us
     priority_paths = [
-        '/contact', '/contact-us', '/write-for-us', '/guest-post', '/contribute',
+        '/contact', '/contact-us', '/write-for-us', '/guest-post', '/about', '/about-us', '/contribute',
         '/submit-guest-post', '/become-a-contributor', '/submit-post', '/editorial-guidelines'
     ]
     for path in priority_paths:
@@ -143,7 +145,7 @@ def scrape_website(start_url: str, max_count: int = 5) -> set[str] | str:
         for anchor in soup.find_all('a'):
             link = anchor.get('href', '')
             normalized = normalize_link(link, base_url, page_path)
-            if any(p in normalized.lower() for p in ['write', 'guest', 'contact', 'submit']):
+            if any(p in normalized.lower() for p in ['write', 'guest', 'contact', 'submit', 'about']):
                 if normalized not in urls_to_process and normalized not in scraped_urls:
                     urls_to_process.append(normalized)
 
