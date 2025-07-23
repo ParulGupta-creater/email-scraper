@@ -65,6 +65,7 @@ def detect_contact_form(html: str) -> bool:
 
 async def visit_and_extract(page, url):
     try:
+        print(f"🌐 Visiting: {url}")
         await page.goto(url, timeout=30000, wait_until="domcontentloaded")
         await page.wait_for_timeout(3000)
 
@@ -89,6 +90,7 @@ async def visit_and_extract(page, url):
         text = soup.get_text()
         footer = soup.find("footer")
         footer_text = str(footer) if footer else ""
+
         emails = extract_emails(text) | extract_emails(footer_text)
         emails = filter_emails(emails)
 
@@ -101,8 +103,8 @@ async def visit_and_extract(page, url):
 
         return "No Email"
 
-    except Exception:
-        print("❌ Error while visiting:", url)
+    except Exception as e:
+        print(f"❌ Failed to visit {url}")
         print(traceback.format_exc())
         return "No Email"
 
@@ -113,6 +115,7 @@ async def scrape_with_playwright(domain: str) -> set[str] | str:
     fallback_paths = ["", "/contact", "/about", "/team"]
     browser = None
     try:
+        print(f"🚀 Starting Playwright scraper for: {domain}")
         async with async_playwright() as p:
             browser = await p.chromium.launch(
                 headless=True,
@@ -125,13 +128,17 @@ async def scrape_with_playwright(domain: str) -> set[str] | str:
                 full_url = domain.rstrip("/") + path
                 result = await visit_and_extract(page, full_url)
                 if isinstance(result, set) and result:
+                    print(f"✅ Emails found on: {full_url}")
                     return result
                 elif result == "Contact Form":
+                    print(f"📝 Contact form found on: {full_url}")
                     return "Contact Form"
+                else:
+                    print(f"⚠️ No emails found on: {full_url}")
 
             return "No Email"
 
-    except Exception:
+    except Exception as e:
         print("❌ Playwright Fatal Error:")
         print(traceback.format_exc())
         return "No Email"
